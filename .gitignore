@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -39,3 +40,13 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# EAS / Google Play secrets (NEVER commit these)
+google-service-account.json
+*.keystore
+credentials.json
+
+# Temp build/migration scripts
+update_translations.js
+update_translations_v2.js
+clean_translations.js
