@@ -3,7 +3,7 @@
  * Displays income, expenses, and transfers grouped by date.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -193,7 +193,7 @@ export function TransactionsScreen() {
   };
 
   // Render Section Header
-  const renderSectionHeader = ({ section }: { section: TransactionSection }) => {
+  const renderSectionHeader = useCallback(({ section }: { section: TransactionSection }) => {
     const formattedDate = formatDate(section.title, 'medium');
     const net = section.netAmount;
     const netFormatted = formatCurrency(net);
@@ -209,10 +209,10 @@ export function TransactionsScreen() {
         </Text>
       </View>
     );
-  };
+  }, [colors]);
 
   // Render Transaction Row
-  const renderItem = ({ item }: { item: Transaction }) => {
+  const renderItem = useCallback(({ item }: { item: Transaction }) => {
     const cat = getCategoryDetails(item.category);
     const formattedAmt = formatCurrency(item.amount);
     
@@ -279,7 +279,7 @@ export function TransactionsScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [colors, tCategory, isRTL, spacing, navigation, flexDirectionStyle]);
 
   const textAlignment = isRTL ? 'right' : 'left';
   const flexDirectionStyle = isRTL ? 'row-reverse' : 'row';
@@ -294,14 +294,6 @@ export function TransactionsScreen() {
             <Badge label={t('workspaces.roleViewer')} variant="warning" />
           )}
         </View>
-        {userRole !== 'viewer' && (
-          <TouchableOpacity
-            onPress={() => navigation.navigate('AddTransaction', { type: 'expense' })}
-            style={[styles.floatingPlus, { backgroundColor: colors.primary }]}
-          >
-            <Ionicons name="add" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Metrics Card */}
@@ -528,13 +520,6 @@ const styles = StyleSheet.create({
   screenTitle: {
     fontSize: fontSize['2xl'],
     fontWeight: fontWeight.bold,
-  },
-  floatingPlus: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   metricsContainer: {
     padding: spacing.md,

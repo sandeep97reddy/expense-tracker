@@ -100,4 +100,51 @@ export const notificationService = {
   async cancelAllScheduledNotifications() {
     await Notifications.cancelAllScheduledNotificationsAsync();
   },
+
+  /**
+   * Ensure UPI payment notification channel exists on Android.
+   * Called once during app initialization or before first UPI notification.
+   */
+  async ensureUPIChannel() {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('upi-payments', {
+        name: 'UPI Payments',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 200, 100, 200],
+        lightColor: '#0D9488',
+      });
+    }
+  },
+
+  /**
+   * Fire an immediate local notification after a UPI payment is recorded.
+   * Includes the transaction ID in the data payload so the app can
+   * identify and undo (delete) the transaction from a notification action.
+   *
+   * @param amount         — The payment amount (₹)
+   * @param payeeName      — Display name of the payee
+   * @param transactionId  — ID of the transaction that was just created
+   */
+  async scheduleUPIPaymentNotification(
+    amount: number,
+    payeeName: string,
+    transactionId: string,
+  ) {
+    await this.ensureUPIChannel();
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Payment Recorded 💸',
+        body: `₹${amount.toLocaleString('en-IN')} paid to ${payeeName}`,
+        data: {
+          type: 'upi_payment',
+          transactionId,
+          amount,
+          payeeName,
+        },
+        ...(Platform.OS === 'android' && { channelId: 'upi-payments' }),
+      },
+      trigger: null, // fire immediately
+    });
+  },
 };

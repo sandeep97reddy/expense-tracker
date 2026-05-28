@@ -3,8 +3,9 @@
  */
 
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet, Modal, FlatList } from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, Modal, FlatList, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
 import { useAuthStore } from '@/modules/auth/store/useAuthStore';
@@ -55,8 +56,10 @@ export function SettingsScreen() {
   // App-level state store
   const activeLanguage = useAppStore((s) => s.language);
   const activeCurrency = useAppStore((s) => s.currency);
+  const isAppLockEnabled = useAppStore((s) => s.isAppLockEnabled);
   const setLanguage = useAppStore((s) => s.setLanguage);
   const setCurrency = useAppStore((s) => s.setCurrency);
+  const setAppLockEnabled = useAppStore((s) => s.setAppLockEnabled);
 
   // Modal Visibility States
   const [langModalVisible, setLangModalVisible] = useState(false);
@@ -75,6 +78,29 @@ export function SettingsScreen() {
 
   const handleSignOut = () => {
     signOut();
+  };
+
+  const toggleAppLock = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      
+      if (!hasHardware || !isEnrolled) {
+        Alert.alert(t('common.error', 'Not Available'), 'Biometric authentication is not set up on this device.');
+        return;
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: isAppLockEnabled ? 'Authenticate to disable App Lock' : 'Authenticate to enable App Lock',
+        fallbackLabel: 'Use PIN',
+      });
+
+      if (result.success) {
+        setAppLockEnabled(!isAppLockEnabled);
+      }
+    } catch (e) {
+      console.warn('AppLock toggle error', e);
+    }
   };
 
   const textAlignment = isRTL ? 'right' : 'left';
@@ -224,8 +250,27 @@ export function SettingsScreen() {
 
         {/* Authentication Options */}
         <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: spacing.xl, textAlign: textAlignment }]}>
-          {t('settings.accountSecurity')}
+          {t('settings.accountSecurity', 'ACCOUNT & SECURITY')}
         </Text>
+
+        {/* App Lock Tile */}
+        <TouchableOpacity
+          onPress={toggleAppLock}
+          style={[
+            styles.settingsTile,
+            { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle },
+          ]}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.tileIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+            <Ionicons name="lock-closed-outline" size={20} color="#F59E0B" />
+          </View>
+          <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+            <Text style={[styles.tileTitle, { color: colors.text }]}>App Lock (Biometrics)</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Require fingerprint/face to open app</Text>
+          </View>
+          <Badge label={isAppLockEnabled ? 'ON' : 'OFF'} variant={isAppLockEnabled ? 'success' : 'default'} />
+        </TouchableOpacity>
 
         <TouchableOpacity
           onPress={handleSignOut}

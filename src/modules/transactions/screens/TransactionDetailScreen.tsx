@@ -149,7 +149,7 @@ export function TransactionDetailScreen() {
           </Text>
           <Text style={[styles.txTitle, { color: colors.text }]}>{tx.title}</Text>
           <Text style={[styles.txDate, { color: colors.textTertiary }]}>
-            {formatDate(tx.date, 'long')}
+            {formatDate(tx.date, 'long')} • {new Date(tx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
 

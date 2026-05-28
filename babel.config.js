@@ -1,11 +1,19 @@
 // babel.config.js — NativeWind + Reanimated configuration
 module.exports = function (api) {
   api.cache(true);
+
+  const plugins = process.env.NODE_ENV === 'test' ? [] : ['react-native-reanimated/plugin'];
+
+  // Automatically strip console.log and friends in production builds
+  if (process.env.NODE_ENV === 'production' || process.env.BABEL_ENV === 'production') {
+    plugins.push('transform-remove-console');
+  }
+
   return {
     presets: [
       ['babel-preset-expo', { jsxImportSource: 'nativewind' }],
       'nativewind/babel',
     ],
-    plugins: ['react-native-reanimated/plugin'],
+    plugins,
   };
 };

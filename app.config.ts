@@ -6,9 +6,9 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
  */
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'ExpenseTracker',
+  name: 'Paisa Track',
   slug: 'expense-tracker',
-  scheme: 'expensetracker',
+  scheme: 'paisatrack',
   version: '1.0.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
@@ -22,7 +22,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // iOS
   ios: {
     supportsTablet: true,
-    bundleIdentifier: 'com.sandeep.expensetracker',
+    bundleIdentifier: 'com.sandeep.paisatrack',
     infoPlist: {
       NSCameraUsageDescription:
         'ExpenseTracker needs camera access to scan UPI QR codes for payments.',
@@ -39,7 +39,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundImage: './assets/android-icon-background.png',
       monochromeImage: './assets/android-icon-monochrome.png',
     },
-    package: 'com.sandeep.expensetracker',
+    package: 'com.sandeep.paisatrack',
     permissions: [
       'android.permission.CAMERA',
       'android.permission.RECORD_AUDIO',
@@ -87,7 +87,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // Extra config injected into Constants.expoConfig.extra
   extra: {
     eas: {
-      projectId: process.env.EAS_PROJECT_ID ?? '',
+      projectId: '68a432ca-fcde-46e8-9150-2935c8bbaba1',
     },
     appEnv: process.env.EXPO_PUBLIC_APP_ENV ?? 'development',
   },

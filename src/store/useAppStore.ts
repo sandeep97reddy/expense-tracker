@@ -24,6 +24,8 @@ interface AppState {
   dailyReminderEnabled: boolean;
   /** Are budget alerts enabled */
   budgetAlertsEnabled: boolean;
+  /** Is App Lock (biometric) enabled */
+  isAppLockEnabled: boolean;
 
   // Actions
   setOnboarded: (value: boolean) => void;
@@ -33,6 +35,7 @@ interface AppState {
   setNotificationsEnabled: (value: boolean) => void;
   setDailyReminderEnabled: (value: boolean) => void;
   setBudgetAlertsEnabled: (value: boolean) => void;
+  setAppLockEnabled: (value: boolean) => void;
   reset: () => void;
 }
 
@@ -44,6 +47,7 @@ const initialState = {
   notificationsEnabled: false,
   dailyReminderEnabled: false,
   budgetAlertsEnabled: true,
+  isAppLockEnabled: false,
 };
 
 export const useAppStore = create<AppState>()(
@@ -58,6 +62,7 @@ export const useAppStore = create<AppState>()(
       setNotificationsEnabled: (value) => set({ notificationsEnabled: value }),
       setDailyReminderEnabled: (value) => set({ dailyReminderEnabled: value }),
       setBudgetAlertsEnabled: (value) => set({ budgetAlertsEnabled: value }),
+      setAppLockEnabled: (value) => set({ isAppLockEnabled: value }),
       reset: () => set(initialState),
     }),
     {

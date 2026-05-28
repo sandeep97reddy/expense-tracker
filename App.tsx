@@ -16,6 +16,7 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 import { RootNavigator } from '@/navigation/RootNavigator';
 import { linking } from '@/navigation/linking';
 import { queryClient } from '@/services/queryClient';
+import { AppLockOverlay } from '@/components/security/AppLockOverlay';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <NavigationContainer linking={linking}>
               <ThemeProvider>
                 <RootNavigator />
+                <AppLockOverlay />
               </ThemeProvider>
             </NavigationContainer>
           </QueryClientProvider>

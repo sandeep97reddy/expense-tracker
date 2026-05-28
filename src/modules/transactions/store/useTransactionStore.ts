@@ -180,10 +180,10 @@ interface TransactionState {
   transactions: Transaction[];
 
   // CRUD Actions
-  /** Create a new transaction, stamping ID and timestamps */
+  /** Create a new transaction, stamping ID and timestamps. Returns the generated ID. */
   addTransaction: (
     transaction: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt' | 'monthKey'>,
-  ) => void;
+  ) => string;
   /** Edit an existing transaction by ID */
   updateTransaction: (
     id: string,
@@ -217,6 +217,8 @@ export const useTransactionStore = create<TransactionState>()(
         set((state) => ({
           transactions: [newTx, ...state.transactions],
         }));
+
+        return newTx.id;
       },
 
       updateTransaction: (id, updates) => {

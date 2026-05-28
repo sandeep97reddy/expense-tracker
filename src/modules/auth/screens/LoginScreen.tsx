@@ -34,10 +34,10 @@ export function LoginScreen() {
         {/* Branding / Header */}
         <View style={styles.header}>
           <View style={[styles.logoPlaceholder, { backgroundColor: colors.primary }]}>
-            <AppText variant="heading" color="#FFFFFF" bold>E</AppText>
+            <AppText variant="heading" color="#FFFFFF" bold>P</AppText>
           </View>
           <AppText variant="heading" bold style={styles.title}>
-            ExpenseTracker
+            Paisa Track
           </AppText>
           <AppText variant="body" color={colors.textSecondary} center style={styles.subtitle}>
             Take control of your finances locally, securely, and seamlessly.

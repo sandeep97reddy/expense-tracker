@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Dimensions,
+  AppState,
+  AppStateStatus,
+  Animated,
+  Platform,
+  Modal,
 } from 'react-native';
 import { useRoute, useNavigation, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,13 +23,18 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useTransactionStore } from '@/modules/transactions/store/useTransactionStore';
 import { useAppStore } from '@/store/useAppStore';
 import { getCategoriesByType } from '@/modules/transactions/utils/categories';
-import { shareQRImage } from '../services/upi-launcher';
-import { modifyUPIUrl } from '../constants/upi-config';
+import { useCategoryStore } from '@/modules/transactions/store/useCategoryStore';
+import { openUPIPayment } from '../services/upi-launcher';
+import { modifyUPIUrl, buildUPIUrl } from '../constants/upi-config';
+import { notificationService } from '@/services/notifications/notificationService';
 import type { RootStackParamList } from '@/navigation/types';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { fontSize, fontWeight } from '@/theme/typography';
 
 type PaymentRouteProp = RouteProp<RootStackParamList, 'Payment'>;
+
+// ─── Snackbar auto-dismiss duration ─────────────────────────────────────────
+const SNACKBAR_DURATION = 6000; // 6 seconds
 
 export function PaymentScreen() {
   const { colors } = useTheme();
@@ -34,18 +43,36 @@ export function PaymentScreen() {
   const route = useRoute<PaymentRouteProp>();
   const params = route.params;
 
-  const { addTransaction } = useTransactionStore();
+  const { addTransaction, deleteTransaction } = useTransactionStore();
 
   const isMerchant = params.isMerchant === 'true';
   const isGeneratedQR = params.generatedQR === 'true';
   const amountLocked = params.amountLocked === 'true';
 
   const [amount, setAmount] = useState(params.amount || '');
-  const [category, setCategory] = useState<string>('food'); // default expense category
+  const [category, setCategory] = useState<string>('food');
   const [reason, setReason] = useState(params.transactionNote || '');
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingQR, setIsGeneratingQR] = useState(false);
   const [qrDataToGenerate, setQrDataToGenerate] = useState<string | null>(null);
+  
+  // ─── Modal state ──────────────────────────────────────────────────────────
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  
+  // ─── Custom Category State ────────────────────────────────────────────────
+  const addCustomCategory = useCategoryStore((state) => state.addCustomCategory);
+  const [showCustomCatModal, setShowCustomCatModal] = useState(false);
+  const [customCatName, setCustomCatName] = useState('');
+  const [customCatIcon, setCustomCatIcon] = useState('star'); // default Ionicons icon
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // ─── Undo / snackbar state ────────────────────────────────────────────────
+  const [pendingTransactionId, setPendingTransactionId] = useState<string | null>(null);
+  const [awaitingReturn, setAwaitingReturn] = useState(false);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const snackbarOpacity = useRef(new Animated.Value(0)).current;
+  const snackbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const qrRef = useRef<any>(null);
 
@@ -70,44 +97,188 @@ export function PaymentScreen() {
     CNY: '¥',
   }[activeCurrency] || '₹';
 
-  const generateAndShare = async (qrUri: string) => {
-    try {
-      const amountNum = parseFloat(amount);
+  // ─── Snackbar helpers ─────────────────────────────────────────────────────
+  const showSnackbar = useCallback((message: string) => {
+    setSnackbarMessage(message);
+    setSnackbarVisible(true);
+    Animated.spring(snackbarOpacity, {
+      toValue: 1,
+      tension: 60,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
 
-      // Save transaction
-      addTransaction({
-        amount: amountNum,
-        type: 'expense',
-        category: category as any,
-        title: isMerchant ? params.payeeName : `UPI to ${params.payeeName}`,
-        note: reason.trim() || undefined,
-        date: new Date().toISOString(),
-        upiId: params.upiId,
-        payeeName: params.payeeName,
-        transactionType: isMerchant ? 'merchant' : 'p2p',
-        merchantCategory: params.merchantCategory || undefined,
-        organizationId: params.organizationId || undefined,
-      });
+    // Auto-dismiss after SNACKBAR_DURATION
+    if (snackbarTimer.current) clearTimeout(snackbarTimer.current);
+    snackbarTimer.current = setTimeout(() => {
+      dismissSnackbar(true);
+    }, SNACKBAR_DURATION);
+  }, [snackbarOpacity]);
 
-      // Share QR
-      const success = await shareQRImage({ qrImageUri: qrUri });
-      if (!success) {
-        Alert.alert(t('common.error'), 'Failed to open UPI apps. Make sure you have a UPI app installed.');
-      } else {
-        // give it a moment before closing to not interrupt the share sheet pop up
-        setTimeout(() => {
-          navigation.goBack();
-        }, 1000);
+  const dismissSnackbar = useCallback((shouldNavigateBack = true) => {
+    if (snackbarTimer.current) clearTimeout(snackbarTimer.current);
+    Animated.timing(snackbarOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setSnackbarVisible(false);
+      if (shouldNavigateBack) {
+        navigation.goBack();
       }
-    } catch (error) {
-      console.error('Payment error:', error);
-      Alert.alert(t('common.error'), 'Failed to process payment. Please try again.');
-    } finally {
-      setIsLoading(false);
-      setIsGeneratingQR(false);
+    });
+  }, [snackbarOpacity, navigation]);
+
+  const handleUndo = useCallback(() => {
+    if (pendingTransactionId) {
+      deleteTransaction(pendingTransactionId);
+      setPendingTransactionId(null);
     }
+    // Stay on screen — don't navigate back. User can re-attempt or close manually.
+    if (snackbarTimer.current) clearTimeout(snackbarTimer.current);
+    Animated.timing(snackbarOpacity, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setSnackbarVisible(false);
+    });
+  }, [pendingTransactionId, deleteTransaction, snackbarOpacity]);
+
+  const handleAddCustomCategory = () => {
+    if (!customCatName.trim()) return;
+    addCustomCategory({
+      label: customCatName.trim(),
+      icon: customCatIcon,
+      color: colors.primary,
+      type: 'expense',
+    });
+    setShowCustomCatModal(false);
+    setCustomCatName('');
   };
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (snackbarTimer.current) clearTimeout(snackbarTimer.current);
+    };
+  }, []);
+
+  // ─── AppState listener: detect return from UPI app ────────────────────────
+  useEffect(() => {
+    if (!awaitingReturn) return;
+
+    const handleAppState = (nextState: AppStateStatus) => {
+      if (nextState === 'active' && awaitingReturn) {
+        setAwaitingReturn(false);
+        handleReturnFromUPIApp();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppState);
+    return () => subscription.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingReturn, pendingTransactionId]);
+
+  /**
+   * Called when user returns from UPI app.
+   * Fires a local notification AND shows an in-app snackbar with Undo.
+   */
+  const handleReturnFromUPIApp = useCallback(() => {
+    const amountNum = parseFloat(amount);
+
+    // Fire OS-level local notification
+    notificationService.scheduleUPIPaymentNotification(
+      amountNum,
+      params.payeeName,
+      pendingTransactionId || '',
+    ).catch((err: any) => console.warn('Notification failed:', err));
+
+    // Show in-app snackbar (NOT a blocking Alert)
+    showSnackbar(`₹${amountNum.toLocaleString('en-IN')} paid to ${params.payeeName}`);
+  }, [amount, pendingTransactionId, params.payeeName, showSnackbar]);
+
+  // ─── Build the UPI deep-link URL ──────────────────────────────────────────
+  /**
+   * KEY FIX for payment rejections:
+   * - Merchant QR codes contain a digital signature (sign=...).
+   *   Re-encoding or modifying the URL invalidates that signature,
+   *   causing UPI apps to reject the payment.
+   * - For merchant QRs with a locked amount: use originalQRData VERBATIM.
+   * - For P2P or amount-unlocked: modifyUPIUrl is safe.
+   */
+  const buildCurrentUPIUrl = useCallback((): string => {
+    const amountNum = parseFloat(amount);
+    const originalUrl = params.originalQRData || '';
+
+    // Merchant with locked amount → use the original URL exactly as scanned
+    if (isMerchant && amountLocked && originalUrl) {
+      return originalUrl;
+    }
+
+    // Has original QR data (P2P, or merchant without amount) → modify carefully
+    if (originalUrl) {
+      return modifyUPIUrl(originalUrl, amountNum, reason.trim() || undefined);
+    }
+
+    // No original data (manual entry) → build from scratch
+    return buildUPIUrl({
+      upiId: params.upiId,
+      payeeName: params.payeeName,
+      amount: amountNum,
+      transactionNote: reason.trim() || undefined,
+    });
+  }, [amount, reason, params.originalQRData, params.upiId, params.payeeName, isMerchant, amountLocked]);
+
+  // ─── After confirmation: save transaction → open OS UPI chooser directly ──
+  const proceedToPayment = useCallback(async () => {
+    const amountNum = parseFloat(amount);
+
+    // Save transaction and capture the ID for undo
+    const txId = addTransaction({
+      amount: amountNum,
+      type: 'expense',
+      category: category as any,
+      title: isMerchant ? params.payeeName : `UPI to ${params.payeeName}`,
+      note: reason.trim() || undefined,
+      date: new Date().toISOString(),
+      upiId: params.upiId,
+      payeeName: params.payeeName,
+      transactionType: isMerchant ? 'merchant' : 'p2p',
+      merchantCategory: params.merchantCategory || undefined,
+      organizationId: params.organizationId || undefined,
+    });
+
+    setPendingTransactionId(txId);
+
+    // Build the UPI deep link
+    const upiUrl = buildCurrentUPIUrl();
+
+    // Open the OS-native UPI app chooser directly (no custom picker)
+    const success = await openUPIPayment(upiUrl);
+
+    if (!success) {
+      // No UPI app found — revert the transaction
+      deleteTransaction(txId);
+      setPendingTransactionId(null);
+      Alert.alert(
+        'No UPI App Found',
+        'Please install a UPI payment app (Google Pay, PhonePe, Paytm, etc.) to make payments.',
+      );
+    } else {
+      // App opened — listen for return
+      setAwaitingReturn(true);
+    }
+
+    setIsLoading(false);
+    setIsGeneratingQR(false);
+  }, [
+    amount, category, reason, isMerchant,
+    params.payeeName, params.upiId, params.merchantCategory, params.organizationId,
+    addTransaction, deleteTransaction, buildCurrentUPIUrl,
+  ]);
+
+  // ─── QR generation flow (still needed for unlocked-amount scanner path) ───
   const handleQRGenerated = async () => {
     if (!qrRef.current) return;
 
@@ -121,7 +292,8 @@ export function PaymentScreen() {
           encoding: FileSystem.EncodingType.Base64,
         });
 
-        await generateAndShare(fileUri);
+        // QR generated — now proceed to payment
+        await proceedToPayment();
       } catch (error) {
         console.error('QR generation error:', error);
         Alert.alert(t('common.error'), 'Failed to generate QR image. Please try again.');
@@ -136,39 +308,33 @@ export function PaymentScreen() {
       Alert.alert(t('upi.parameterError'), t('upi.parameterError'));
       return;
     }
+    
+    // Show modern confirmation modal
+    setShowConfirmModal(true);
+  };
 
-    // INTERMEDIARY CONFIRMATION VIEW alert check (Security Pillar 4)
-    Alert.alert(
-      t('upi.confirmingDetails'),
-      `${t('upi.antiQuishingWarning')}\n\n${t('upi.payeeName')}: ${params.payeeName}\n${t('upi.upiId')}: ${params.upiId}`,
-      [
-        { text: t('common.cancel'), style: 'cancel', onPress: () => setIsLoading(false) },
-        {
-          text: t('common.confirm'),
-          onPress: async () => {
-            setIsLoading(true);
+  const confirmPayment = async () => {
+    setShowConfirmModal(false);
+    setIsLoading(true);
 
-            if (hasQrImage && amountLocked) {
-              await generateAndShare(qrImageUri);
-            } else {
-              const amountNum = parseFloat(amount);
-              const originalUrl = params.originalQRData || '';
+    if (hasQrImage && amountLocked) {
+      // Amount locked in QR → proceed directly
+      await proceedToPayment();
+    } else {
+      // Need to generate QR with user's amount
+      const amountNum = parseFloat(amount);
+      const originalUrl = params.originalQRData || '';
+      const modifiedUrl = modifyUPIUrl(originalUrl, amountNum, reason.trim() || undefined);
 
-              const modifiedUrl = modifyUPIUrl(originalUrl, amountNum, reason.trim() || undefined);
+      setQrDataToGenerate(modifiedUrl);
+      setIsGeneratingQR(true);
 
-              setQrDataToGenerate(modifiedUrl);
-              setIsGeneratingQR(true);
-
-              setTimeout(() => {
-                if (qrRef.current) {
-                  handleQRGenerated();
-                }
-              }, 300);
-            }
-          }
+      setTimeout(() => {
+        if (qrRef.current) {
+          handleQRGenerated();
         }
-      ]
-    );
+      }, 300);
+    }
   };
 
   const handleClose = () => {
@@ -195,16 +361,24 @@ export function PaymentScreen() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Payee Info Card */}
-          <Card style={[styles.payeeCard, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: flexDirectionStyle }]}>
-            <View style={[styles.payeeIconContainer, { marginRight: isRTL ? 0 : spacing.md, marginLeft: isRTL ? spacing.md : 0 }]}>
-              <Ionicons
-                name={isMerchant ? 'storefront' : 'person-circle'}
-                size={48}
-                color={colors.primary}
-              />
-            </View>
-            <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
+          {/* Modern Payment Confirmation Card */}
+          <View style={[
+            styles.paymentCard, 
+            { 
+              backgroundColor: colors.surfaceElevated,
+            }
+          ]}>
+            {/* Payee Profile */}
+            <View style={styles.payeeProfile}>
+              <View style={[styles.avatarContainer, { backgroundColor: `${colors.primary}15` }]}>
+                {isMerchant ? (
+                  <Ionicons name="storefront" size={28} color={colors.primary} />
+                ) : (
+                  <Text style={[styles.avatarText, { color: colors.primary }]}>
+                    {params.payeeName ? params.payeeName.charAt(0).toUpperCase() : '?'}
+                  </Text>
+                )}
+              </View>
               <Text style={[styles.payeeNameText, { color: colors.text }]} numberOfLines={1}>
                 {params.payeeName}
               </Text>
@@ -212,105 +386,169 @@ export function PaymentScreen() {
                 {params.upiId}
               </Text>
               {isMerchant && (
-                <View style={[styles.merchantBadge, { backgroundColor: `${colors.primary}20`, flexDirection: flexDirectionStyle }]}>
-                  <Ionicons name="shield-checkmark" size={12} color={colors.primary} />
+                <View style={[styles.merchantBadge, { backgroundColor: `${colors.primary}15`, flexDirection: flexDirectionStyle }]}>
+                  <Ionicons name="shield-checkmark" size={14} color={colors.primary} />
                   <Text style={[styles.merchantBadgeText, { color: colors.primary }]}>
                     Verified Merchant
                   </Text>
                 </View>
               )}
             </View>
-          </Card>
 
-          {amountLocked && (
-            <View style={[styles.infoCard, { backgroundColor: `${colors.primary}15`, flexDirection: flexDirectionStyle }]}>
-              <Ionicons name="lock-closed" size={18} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.primary, textAlign: textAlignment }]}>
-                {t('upi.currencyLocked')}
-              </Text>
-            </View>
-          )}
+            <View style={[styles.dashedDivider, { borderColor: colors.border }]} />
 
-          {/* Amount Display Card */}
-          <Card style={[styles.amountCard, { backgroundColor: colors.surface, borderColor: amountLocked ? colors.primary : colors.border }]}>
-            <Text style={[styles.amountLabel, { color: colors.textSecondary }]}>{t('transactions.enterAmount').toUpperCase()}</Text>
-            <View style={[styles.amountInputRow, { flexDirection: flexDirectionStyle }]}>
-              <Text style={[styles.currencySymbol, { color: colors.text, marginRight: isRTL ? 0 : spacing.xs, marginLeft: isRTL ? spacing.xs : 0 }]}>
-                {currencySymbol}
+            {/* Amount Section */}
+            <View style={styles.amountContainer}>
+              <Text style={[styles.amountLabel, { color: colors.textSecondary }]}>
+                {t('transactions.enterAmount').toUpperCase()}
               </Text>
-              <Input
-                placeholder="0"
-                keyboardType="numeric"
-                value={amount}
-                onChangeText={setAmount}
-                editable={!amountLocked}
-                style={[
-                  styles.amountInput,
-                  { color: amountLocked ? colors.textSecondary : colors.text, textAlign: textAlignment },
-                ]}
-                containerStyle={{ marginBottom: 0, flex: 1 }}
-                maxLength={9}
-              />
-              {amountLocked && (
-                <Ionicons name="lock-closed" size={24} color={colors.primary} style={{ marginLeft: spacing.sm }} />
-              )}
+              <View style={[styles.amountInputRow, { flexDirection: flexDirectionStyle }]}>
+                <Text style={[styles.currencySymbol, { color: colors.text, marginRight: isRTL ? 0 : spacing.xs, marginLeft: isRTL ? spacing.xs : 0 }]}>
+                  {currencySymbol}
+                </Text>
+                <Input
+                  placeholder="0"
+                  keyboardType="numeric"
+                  value={amount}
+                  onChangeText={setAmount}
+                  editable={!amountLocked}
+                  style={[
+                    styles.amountInput,
+                    { color: amountLocked ? colors.primary : colors.text, textAlign: 'center' },
+                  ]}
+                  containerStyle={{ marginBottom: 0, flex: 1, borderWidth: 0, backgroundColor: 'transparent' }}
+                  maxLength={9}
+                />
+                {amountLocked && (
+                  <View style={[styles.lockBadge, { backgroundColor: `${colors.primary}15` }]}>
+                    <Ionicons name="lock-closed" size={16} color={colors.primary} />
+                  </View>
+                )}
+              </View>
             </View>
-          </Card>
+
+            {/* Note Section */}
+            {(amountLocked && params.transactionNote) ? (
+              <View style={styles.noteDisplay}>
+                 <Text style={[styles.noteDisplayText, { color: colors.textSecondary }]} numberOfLines={2}>
+                   Note: {params.transactionNote}
+                 </Text>
+              </View>
+            ) : (
+              <View style={[styles.noteInputWrapper, { backgroundColor: colors.surface }]}>
+                <Input
+                  placeholder="Add a note (optional)"
+                  value={reason}
+                  onChangeText={setReason}
+                  maxLength={50}
+                  style={{ textAlign: 'center', fontSize: fontSize.sm }}
+                  containerStyle={{ marginBottom: 0, borderWidth: 0, backgroundColor: 'transparent' }}
+                />
+              </View>
+            )}
+
+            <View style={[styles.dashedDivider, { borderColor: colors.border }]} />
+
+            {/* Branding / Secure Note */}
+            <View style={[styles.brandingFooter, { flexDirection: flexDirectionStyle }]}>
+               <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+               <Text style={[styles.brandingText, { color: colors.textSecondary }]}>
+                 Secure UPI Payment
+               </Text>
+            </View>
+          </View>
 
           {/* Category Picker Grid */}
-          <Card style={[styles.cardSection, { borderColor: colors.border }]}>
+          <View style={styles.categorySection}>
             <Text style={[styles.sectionTitle, { color: colors.text, textAlign: textAlignment }]}>{t('transactions.selectCategory')}</Text>
             <View style={[styles.categoryGrid, { flexDirection: flexDirectionStyle }]}>
-              {expenseCategories.map((cat) => {
-                const isSelected = category === cat.key;
-                return (
-                  <TouchableOpacity
-                    key={cat.key}
-                    onPress={() => setCategory(cat.key)}
-                    style={[
-                      styles.categoryItem,
-                      isSelected && {
-                        backgroundColor: `${cat.color}15`,
-                        borderColor: cat.color,
-                        borderWidth: 1.5,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.iconCircle, { backgroundColor: `${cat.color}15` }]}>
-                      <Ionicons name={cat.icon as any} size={22} color={cat.color} />
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.categoryLabel,
-                        { color: isSelected ? colors.text : colors.textSecondary },
-                      ]}
-                    >
-                      {tCategory(cat.key)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </Card>
+              {(() => {
+                const displayedCategories = isExpanded ? expenseCategories : expenseCategories.slice(0, 7);
+                const hasMore = expenseCategories.length > 7;
 
-          <Input
-            label={t('transactions.notes')}
-            placeholder="e.g., Groceries, Lunch, etc."
-            value={reason}
-            onChangeText={setReason}
-            maxLength={50}
-            style={{ textAlign: textAlignment }}
-          />
+                return (
+                  <>
+                    {displayedCategories.map((cat) => {
+                      const isSelected = category === cat.key;
+                      return (
+                        <TouchableOpacity
+                          key={cat.key}
+                          onPress={() => setCategory(cat.key)}
+                          style={[
+                            styles.categoryItem,
+                            isSelected && {
+                              backgroundColor: `${cat.color}15`,
+                              borderColor: cat.color,
+                              borderWidth: 1.5,
+                            },
+                          ]}
+                        >
+                          <View style={[styles.iconCircle, { backgroundColor: `${cat.color}15` }]}>
+                            <Ionicons name={cat.icon as any} size={22} color={cat.color} />
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.categoryLabel,
+                              { color: isSelected ? colors.text : colors.textSecondary },
+                            ]}
+                          >
+                            {tCategory(cat.key)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {!isExpanded && hasMore && (
+                      <TouchableOpacity onPress={() => setIsExpanded(true)} style={[styles.categoryItem]}>
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="chevron-down" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          More
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {(!hasMore || isExpanded) && (
+                      <TouchableOpacity
+                        onPress={() => setShowCustomCatModal(true)}
+                        style={[styles.categoryItem]}
+                      >
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="add" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          Custom
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {isExpanded && (
+                      <TouchableOpacity onPress={() => setIsExpanded(false)} style={[styles.categoryItem]}>
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="chevron-up" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          Less
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                );
+              })()}
+            </View>
+          </View>
 
           <Button
-            title={isGeneratingQR || isLoading ? t('common.loading') : t('upi.payButton')}
+            title={t('upi.payButton')}
             onPress={handlePay}
             variant="primary"
             size="lg"
             fullWidth
+            loading={isLoading || isGeneratingQR}
             disabled={!canPay || isLoading || isGeneratingQR}
-            leftIcon={!isLoading && !isGeneratingQR ? <Ionicons name="share-outline" size={20} color="#fff" /> : undefined}
+            leftIcon={!isLoading && !isGeneratingQR ? <Ionicons name="wallet-outline" size={20} color="#fff" /> : undefined}
             style={{ marginTop: spacing.md, marginBottom: spacing['2xl'] }}
           />
         </ScrollView>
@@ -328,6 +566,154 @@ export function PaymentScreen() {
           />
         </View>
       )}
+
+      {/* ─── In-app Snackbar with Undo ─────────────────────────────────────── */}
+      {snackbarVisible && (
+        <Animated.View
+          style={[
+            styles.snackbar,
+            {
+              backgroundColor: colors.text,
+              opacity: snackbarOpacity,
+              transform: [{
+                translateY: snackbarOpacity.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [80, 0],
+                }),
+              }],
+            },
+          ]}
+        >
+          <View style={styles.snackbarContent}>
+            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+            <Text style={[styles.snackbarText, { color: colors.background }]} numberOfLines={2}>
+              {snackbarMessage}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={handleUndo}
+            style={[styles.undoButton, { backgroundColor: `${colors.warning}25` }]}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.undoText, { color: colors.warning }]}>UNDO</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* ─── Modern Confirmation Modal ─────────────────────────────────────── */}
+      <Modal
+        visible={showConfirmModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConfirmModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowConfirmModal(false)} activeOpacity={1} />
+          
+          <View style={[styles.modalContent, { backgroundColor: colors.background, paddingBottom: Platform.OS === 'ios' ? 40 : 24 }]}>
+            <View style={[styles.modalDragIndicator, { backgroundColor: colors.border }]} />
+            
+            <View style={styles.modalHeader}>
+              <Ionicons name="shield-checkmark" size={32} color={colors.primary} />
+              <Text style={[styles.modalTitle, { color: colors.text }]}>{t('upi.confirmingDetails')}</Text>
+            </View>
+
+            <View style={[styles.modalWarningBox, { backgroundColor: `${colors.warning}15`, borderColor: `${colors.warning}50` }]}>
+              <Ionicons name="warning" size={20} color={colors.warning} style={{ marginTop: 2 }} />
+              <Text style={[styles.modalWarningText, { color: colors.textSecondary }]}>
+                {t('upi.antiQuishingWarning')}
+              </Text>
+            </View>
+
+            <View style={[styles.modalDetailsBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: colors.textSecondary }]}>{t('upi.payeeName')}</Text>
+                <Text style={[styles.modalDetailValue, { color: colors.text }]} numberOfLines={1}>{params.payeeName}</Text>
+              </View>
+              <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: colors.textSecondary }]}>{t('upi.upiId')}</Text>
+                <Text style={[styles.modalDetailValue, { color: colors.text }]} numberOfLines={1}>{params.upiId}</Text>
+              </View>
+              <View style={[styles.modalDivider, { backgroundColor: colors.border }]} />
+              <View style={styles.modalDetailRow}>
+                <Text style={[styles.modalDetailLabel, { color: colors.textSecondary }]}>{t('transactions.amount')}</Text>
+                <Text style={[styles.modalDetailValueAmount, { color: colors.primary }]} numberOfLines={1}>
+                  {currencySymbol}{amount}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.modalActions}>
+              <Button
+                title={t('common.cancel')}
+                onPress={() => setShowConfirmModal(false)}
+                variant="outline"
+                style={{ flex: 1 }}
+              />
+              <View style={{ width: spacing.md }} />
+              <Button
+                title={t('common.confirm')}
+                onPress={confirmPayment}
+                variant="primary"
+                style={{ flex: 1 }}
+                leftIcon={<Ionicons name="lock-closed" size={16} color="#fff" />}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Custom Category Modal ─────────────────────────────────────────── */}
+      <Modal
+        visible={showCustomCatModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCustomCatModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowCustomCatModal(false)} activeOpacity={1} />
+          
+          <View style={[styles.modalContent, { backgroundColor: colors.background, paddingBottom: Platform.OS === 'ios' ? 40 : 24 }]}>
+            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: spacing.md }]}>New Category</Text>
+            
+            <Input
+              label="Category Name"
+              placeholder="e.g. Sushi, Gym, Steam"
+              value={customCatName}
+              onChangeText={setCustomCatName}
+            />
+
+            <Text style={{ color: colors.textSecondary, marginBottom: spacing.sm, marginTop: spacing.md }}>Select Icon</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl }}>
+              {['star', 'cafe', 'car', 'cart', 'heart', 'airplane', 'musical-notes', 'game-controller', 'bag', 'book', 'pizza', 'ice-cream'].map(iconName => {
+                const isSelected = customCatIcon === iconName;
+                return (
+                  <TouchableOpacity
+                    key={iconName}
+                    onPress={() => setCustomCatIcon(iconName)}
+                    style={{
+                      width: 44, height: 44, borderRadius: 22,
+                      justifyContent: 'center', alignItems: 'center',
+                      backgroundColor: isSelected ? colors.primary : colors.surface,
+                      borderWidth: 1, borderColor: isSelected ? colors.primary : colors.border
+                    }}
+                  >
+                    <Ionicons name={iconName as any} size={20} color={isSelected ? '#FFF' : colors.text} />
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            <Button
+              title="Save Category"
+              onPress={handleAddCustomCategory}
+              variant="primary"
+              fullWidth
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenWrapper>
   );
 }
@@ -348,62 +734,80 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
   },
-  payeeCard: {
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
-    marginBottom: spacing.lg,
-    borderWidth: 1,
+  paymentCard: {
+    borderRadius: borderRadius.xl,
+    marginBottom: spacing.xl,
+    padding: spacing.lg,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.08,
+        shadowRadius: 24,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
-  payeeIconContainer: {},
-  payeeInfo: {},
+  payeeProfile: {
+    alignItems: 'center',
+    paddingBottom: spacing.lg,
+  },
+  avatarContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  avatarText: {
+    fontSize: fontSize['2xl'],
+    fontWeight: fontWeight.bold,
+  },
   payeeNameText: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-    marginBottom: 2,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
   },
   upiIdText: {
     fontSize: fontSize.sm,
+    textAlign: 'center',
   },
   merchantBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
-    alignSelf: 'flex-start',
-    gap: 4,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+    gap: spacing.xs,
   },
   merchantBadgeText: {
     fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.bold,
   },
-  infoCard: {
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.lg,
-    gap: spacing.sm,
-  },
-  infoText: {
-    flex: 1,
-    fontSize: spacing.md,
-    fontWeight: fontWeight.medium,
-  },
-  amountCard: {
-    padding: spacing.xl,
-    borderRadius: borderRadius.lg,
-    alignItems: 'center',
-    marginBottom: spacing.lg,
+  dashedDivider: {
+    height: 1,
     borderWidth: 1,
+    borderStyle: 'dashed',
+    marginHorizontal: -spacing.lg,
+    opacity: 0.3,
+  },
+  amountContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
   },
   amountLabel: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     letterSpacing: 1,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   amountInputRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -412,17 +816,47 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   amountInput: {
-    fontSize: fontSize['4xl'],
+    fontSize: fontSize['5xl'],
     fontWeight: fontWeight.bold,
-    minWidth: 100,
+    minWidth: 120,
+    paddingVertical: 0,
     borderWidth: 0,
     backgroundColor: 'transparent',
-    paddingVertical: 0,
   },
-  cardSection: {
-    borderWidth: 1,
+  lockBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+  },
+  noteDisplay: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  noteDisplayText: {
+    fontSize: fontSize.sm,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  noteInputWrapper: {
+    marginVertical: spacing.md,
     borderRadius: borderRadius.md,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.sm,
+  },
+  brandingFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: spacing.lg,
+    gap: spacing.xs,
+  },
+  brandingText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+  },
+  categorySection: {
     marginBottom: spacing.lg,
   },
   sectionTitle: {
@@ -431,7 +865,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   categoryGrid: {
-    gap: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
   },
   categoryItem: {
     width: '22%',
@@ -461,4 +898,143 @@ const styles = StyleSheet.create({
     top: -1000,
     left: -1000,
   },
+  // ─── Snackbar styles ──────────────────────────────────────────────────────
+  snackbar: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 40 : 24,
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.lg,
+    gap: spacing.md,
+    // Shadow
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
+  },
+  snackbarContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  snackbarText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+  },
+  undoButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+  },
+  undoText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    letterSpacing: 0.5,
+  },
+  
+  // ─── Modal Styles ─────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill as any,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 16,
+      },
+    }),
+  },
+  modalDragIndicator: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: spacing.xl,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+    gap: spacing.sm,
+  },
+  modalTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+  },
+  modalWarningBox: {
+    flexDirection: 'row',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginBottom: spacing.xl,
+    gap: spacing.sm,
+  },
+  modalWarningText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 20,
+  },
+  modalDetailsBox: {
+    borderWidth: 1,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  modalDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  modalDetailLabel: {
+    fontSize: fontSize.sm,
+  },
+  modalDetailValue: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: spacing.lg,
+  },
+  modalDetailValueAmount: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+  },
+  modalDivider: {
+    height: 1,
+    width: '100%',
+    opacity: 0.5,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
+  },
 });
+

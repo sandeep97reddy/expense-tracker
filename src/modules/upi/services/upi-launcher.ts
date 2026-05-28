@@ -1,44 +1,39 @@
-import * as Sharing from 'expo-sharing';
+/**
+ * UPI App Launcher
+ * Opens the OS-native UPI app chooser with a plain upi:// deep link.
+ * The OS shows only installed UPI/banking apps — no custom picker needed.
+ *
+ * IMPORTANT: For merchant QR codes (with digital signature), the original
+ * URL must be passed verbatim. Re-encoding or reconstructing the URL
+ * invalidates the merchant's cryptographic signature, causing UPI apps
+ * to reject the payment for security reasons.
+ */
 
-interface ShareQRParams {
-  /** URI of the captured QR code image */
-  qrImageUri: string;
-}
+import { Linking } from 'react-native';
 
 /**
- * Share QR image to UPI apps via Android share sheet.
- * User can select GPay, PhonePe, Paytm, or any other UPI app.
- * The selected app will scan the QR from the shared image and process payment.
+ * Open the OS-native UPI app chooser with the given UPI URL.
+ * Android will show an intent chooser with all installed UPI-capable apps.
+ * iOS will open the default UPI handler.
+ *
+ * @param upiUrl - Full UPI URL exactly as scanned or constructed.
+ *                 e.g. 'upi://pay?pa=merchant@upi&pn=Store&am=100&cu=INR&sign=...'
+ * @returns true if at least one UPI app is available and the URL was opened
  */
-export const shareQRImage = async (params: ShareQRParams): Promise<boolean> => {
+export const openUPIPayment = async (upiUrl: string): Promise<boolean> => {
   try {
-    // Check if sharing is available on this device
-    const isAvailable = await Sharing.isAvailableAsync();
-    if (!isAvailable) {
-      console.error('Sharing is not available on this device');
+    // Check if any app can handle upi:// URLs
+    const canOpen = await Linking.canOpenURL(upiUrl);
+    if (!canOpen) {
+      console.warn('[UPI] No UPI app found to handle:', upiUrl.substring(0, 60));
       return false;
     }
 
-    // Share the QR image via native share sheet
-    await Sharing.shareAsync(params.qrImageUri, {
-      mimeType: 'image/jpeg',
-      dialogTitle: 'Pay with UPI App',
-    });
-
+    // Open — OS shows the native app chooser (only installed UPI apps)
+    await Linking.openURL(upiUrl);
     return true;
   } catch (error) {
-    console.error('Error sharing QR image:', error);
-    return false;
-  }
-};
-
-/**
- * Check if sharing is available on the device
- */
-export const isSharingAvailable = async (): Promise<boolean> => {
-  try {
-    return await Sharing.isAvailableAsync();
-  } catch (error) {
+    console.error('[UPI] Failed to open UPI payment URL:', error);
     return false;
   }
 };

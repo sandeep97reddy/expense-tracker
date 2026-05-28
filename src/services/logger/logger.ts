@@ -73,23 +73,26 @@ function emit(entry: LogEntry) {
   const prefix = `[${entry.timestamp}] [${entry.level.toUpperCase()}]${entry.context ? ` [${entry.context}]` : ''}`;
   const msg = `${prefix} ${entry.message}`;
 
-  switch (entry.level) {
-    case 'debug':
-      if (isDev) console.debug(msg, entry.data ?? '');
-      break;
-    case 'info':
-      console.info(msg, entry.data ?? '');
-      break;
-    case 'warn':
-      console.warn(msg, entry.data ?? '');
-      break;
-    case 'error':
-      console.error(msg, entry.data ?? '');
-      break;
+  // Babel plugin strips console.* in production, but we gate it here as well for safety
+  if (!isProd) {
+    switch (entry.level) {
+      case 'debug':
+        if (isDev) console.debug(msg, entry.data ?? '');
+        break;
+      case 'info':
+        console.info(msg, entry.data ?? '');
+        break;
+      case 'warn':
+        console.warn(msg, entry.data ?? '');
+        break;
+      case 'error':
+        console.error(msg, entry.data ?? '');
+        break;
+    }
+  } else if (entry.level === 'error') {
+    // In production, you would forward 'error' entries to a remote service:
+    // e.g., Sentry.captureException(new Error(entry.message), { extra: entry.data })
   }
-
-  // In production, you would forward 'error' entries to a remote service:
-  // e.g., Sentry.captureException(new Error(entry.message), { extra: entry.data })
 }
 
 /**

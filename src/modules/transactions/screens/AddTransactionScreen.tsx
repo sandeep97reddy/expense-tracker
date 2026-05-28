@@ -12,6 +12,7 @@ import {
   Switch,
   Alert,
   Image,
+  Modal,
 } from 'react-native';
 import { useRoute, useNavigation, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,7 @@ import { Button, Input, Card, Badge, IconButton } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTransactionStore } from '../store/useTransactionStore';
+import { useCategoryStore } from '../store/useCategoryStore';
 import { useWorkspaceStore } from '@/modules/workspaces/store/useWorkspaceStore';
 import { useAuthStore } from '@/modules/auth/store/useAuthStore';
 import { useAppStore } from '@/store/useAppStore';
@@ -93,9 +95,16 @@ export function AddTransactionScreen() {
   const [date, setDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [note, setNote] = useState<string>('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [currentTag, setCurrentTag] = useState<string>('');
   const [attachments, setAttachments] = useState<string[]>([]);
+
+  // Custom Category State
+  const addCustomCategory = useCategoryStore((state) => state.addCustomCategory);
+  const [showCustomCatModal, setShowCustomCatModal] = useState(false);
+  const [customCatName, setCustomCatName] = useState('');
+  const [customCatIcon, setCustomCatIcon] = useState('star'); // default Ionicons icon
+  
+  // Grid Expansion State
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Split Expense State (Expense Only)
   const [isSplit, setIsSplit] = useState<boolean>(false);
@@ -125,7 +134,6 @@ export function AddTransactionScreen() {
         setCategory(tx.category);
         setDate(new Date(tx.date));
         setNote(tx.note || '');
-        setTags(tx.tags || []);
         setAttachments(tx.attachments || []);
         
         if (tx.splitDetails && tx.splitDetails.length > 0) {
@@ -185,17 +193,17 @@ export function AddTransactionScreen() {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Tag Helpers
-  const handleAddTag = () => {
-    const cleaned = currentTag.trim().toLowerCase();
-    if (cleaned && !tags.includes(cleaned)) {
-      setTags((prev) => [...prev, cleaned]);
-      setCurrentTag('');
-    }
-  };
-
-  const handleRemoveTag = (tag: string) => {
-    setTags((prev) => prev.filter((t) => t !== tag));
+  // Custom Category Helper
+  const handleAddCustomCategory = () => {
+    if (!customCatName.trim()) return;
+    addCustomCategory({
+      label: customCatName.trim(),
+      icon: customCatIcon,
+      color: colors.primary,
+      type,
+    });
+    setShowCustomCatModal(false);
+    setCustomCatName('');
   };
 
   // Split Helpers
@@ -231,11 +239,6 @@ export function AddTransactionScreen() {
       return;
     }
 
-    if (!title.trim()) {
-      Alert.alert(t('common.error'), t('transactions.amountRequired'));
-      return;
-    }
-
     const totalSplitAmt = splits.reduce((acc, curr) => acc + curr.amount, 0);
     if (isSplit && totalSplitAmt > parsedAmount) {
       Alert.alert(t('common.error'), 'Sum of splits cannot exceed the total transaction amount.');
@@ -246,9 +249,8 @@ export function AddTransactionScreen() {
       amount: parsedAmount,
       type,
       category,
-      title: title.trim(),
+      title: title.trim() || tCategory(category) || 'Transaction',
       note: note.trim() || undefined,
-      tags: tags.length > 0 ? tags : undefined,
       date: date.toISOString(),
       attachments: attachments.length > 0 ? attachments : undefined,
       recurring: isRecurring ? true : undefined,
@@ -393,36 +395,81 @@ export function AddTransactionScreen() {
           <Card style={[styles.cardSection, { borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text, textAlign: textAlignment }]}>{t('transactions.selectCategory')}</Text>
             <View style={[styles.categoryGrid, { flexDirection: flexDirectionStyle }]}>
-              {categoryDetails.map((cat) => {
-                const isSelected = category === cat.key;
+              {(() => {
+                const displayedCategories = isExpanded ? categoryDetails : categoryDetails.slice(0, 7);
+                const hasMore = categoryDetails.length > 7;
+
                 return (
-                  <TouchableOpacity
-                    key={cat.key}
-                    onPress={() => setCategory(cat.key)}
-                    style={[
-                      styles.categoryItem,
-                      isSelected && {
-                        backgroundColor: `${cat.color}15`,
-                        borderColor: cat.color,
-                        borderWidth: 1.5,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.iconCircle, { backgroundColor: `${cat.color}15` }]}>
-                      <Ionicons name={cat.icon as any} size={22} color={cat.color} />
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.categoryLabel,
-                        { color: isSelected ? colors.text : colors.textSecondary },
-                      ]}
-                    >
-                      {tCategory(cat.key)}
-                    </Text>
-                  </TouchableOpacity>
+                  <>
+                    {displayedCategories.map((cat) => {
+                      const isSelected = category === cat.key;
+                      return (
+                        <TouchableOpacity
+                          key={cat.key}
+                          onPress={() => setCategory(cat.key)}
+                          style={[
+                            styles.categoryItem,
+                            isSelected && {
+                              backgroundColor: `${cat.color}15`,
+                              borderColor: cat.color,
+                              borderWidth: 1.5,
+                            },
+                          ]}
+                        >
+                          <View style={[styles.iconCircle, { backgroundColor: `${cat.color}15` }]}>
+                            <Ionicons name={cat.icon as any} size={22} color={cat.color} />
+                          </View>
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.categoryLabel,
+                              { color: isSelected ? colors.text : colors.textSecondary },
+                            ]}
+                          >
+                            {tCategory(cat.key)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {!isExpanded && hasMore && (
+                      <TouchableOpacity onPress={() => setIsExpanded(true)} style={[styles.categoryItem]}>
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="chevron-down" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          More
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {(!hasMore || isExpanded) && (
+                      <TouchableOpacity
+                        onPress={() => setShowCustomCatModal(true)}
+                        style={[styles.categoryItem]}
+                      >
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="add" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          Custom
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {isExpanded && (
+                      <TouchableOpacity onPress={() => setIsExpanded(false)} style={[styles.categoryItem]}>
+                        <View style={[styles.iconCircle, { backgroundColor: `${colors.border}50` }]}>
+                          <Ionicons name="chevron-up" size={22} color={colors.textSecondary} />
+                        </View>
+                        <Text numberOfLines={1} style={[styles.categoryLabel, { color: colors.textSecondary }]}>
+                          Less
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </View>
           </Card>
 
@@ -563,47 +610,6 @@ export function AddTransactionScreen() {
             )}
           </Card>
 
-          {/* Tags chip builder */}
-          <Card style={[styles.cardSection, { borderColor: colors.border }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text, textAlign: textAlignment }]}>{t('transactions.tags')}</Text>
-            <View style={[styles.row, { flexDirection: flexDirectionStyle }]}>
-              <Input
-                placeholder="Add tag"
-                value={currentTag}
-                onChangeText={setCurrentTag}
-                onSubmitEditing={handleAddTag}
-                containerStyle={{ flex: 1, marginBottom: 0 }}
-                style={{ textAlign: textAlignment }}
-              />
-              <TouchableOpacity
-                onPress={handleAddTag}
-                style={[
-                  styles.addTagBtn,
-                  { backgroundColor: colors.primary, marginLeft: isRTL ? 0 : spacing.sm, marginRight: isRTL ? spacing.sm : 0 }
-                ]}
-              >
-                <Ionicons name="add" size={22} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            {tags.length > 0 && (
-              <View style={[styles.tagChips, { flexDirection: flexDirectionStyle }]}>
-                {tags.map((tag) => (
-                  <Badge
-                    key={tag}
-                    label={`#${tag}`}
-                    variant="secondary"
-                    rightIcon={
-                      <TouchableOpacity onPress={() => handleRemoveTag(tag)}>
-                        <Ionicons name="close-circle" size={14} color={colors.textSecondary} style={{ marginLeft: 4 }} />
-                      </TouchableOpacity>
-                    }
-                  />
-                ))}
-              </View>
-            )}
-          </Card>
-
           {/* Note Area */}
           <Input
             label={t('transactions.notes')}
@@ -653,6 +659,57 @@ export function AddTransactionScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingWrapper>
+
+      {/* Custom Category Modal */}
+      <Modal
+        visible={showCustomCatModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCustomCatModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={() => setShowCustomCatModal(false)} activeOpacity={1} />
+          
+          <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: spacing.md }]}>New Category</Text>
+            
+            <Input
+              label="Category Name"
+              placeholder="e.g. Sushi, Gym, Steam"
+              value={customCatName}
+              onChangeText={setCustomCatName}
+            />
+
+            <Text style={{ color: colors.textSecondary, marginBottom: spacing.sm, marginTop: spacing.md }}>Select Icon</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl }}>
+              {['star', 'cafe', 'car', 'cart', 'heart', 'airplane', 'musical-notes', 'game-controller', 'bag', 'book', 'pizza', 'ice-cream'].map(iconName => {
+                const isSelected = customCatIcon === iconName;
+                return (
+                  <TouchableOpacity
+                    key={iconName}
+                    onPress={() => setCustomCatIcon(iconName)}
+                    style={{
+                      width: 44, height: 44, borderRadius: 22,
+                      justifyContent: 'center', alignItems: 'center',
+                      backgroundColor: isSelected ? colors.primary : colors.surface,
+                      borderWidth: 1, borderColor: isSelected ? colors.primary : colors.border
+                    }}
+                  >
+                    <Ionicons name={iconName as any} size={20} color={isSelected ? '#FFF' : colors.text} />
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            <Button
+              title="Save Category"
+              onPress={handleAddCustomCategory}
+              variant="primary"
+              fullWidth
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenWrapper>
   );
 }
@@ -735,7 +792,10 @@ const styles = StyleSheet.create({
     marginTop: 20, // aligns with inputs
   },
   categoryGrid: {
-    gap: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+    gap: spacing.sm,
   },
   categoryItem: {
     width: '22%',
@@ -825,17 +885,23 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     alignItems: 'center',
   },
-  addTagBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: borderRadius.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
   },
-  tagChips: {
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.md,
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill as any,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    borderTopLeftRadius: borderRadius.lg,
+    borderTopRightRadius: borderRadius.lg,
+    padding: spacing.xl,
+    paddingBottom: spacing['3xl'],
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
   },
   textArea: {
     minHeight: 80,

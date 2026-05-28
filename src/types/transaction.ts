@@ -14,24 +14,31 @@ export type IncomeCategory =
   | 'rental'
   | 'gifts'
   | 'business'
+  | 'cashback'
+  | 'refunds'
   | 'part_time'
   | 'other_income';
 
 /** Expense categories */
 export type ExpenseCategory =
   | 'food'
-  | 'groceries'
-  | 'rent'
-  | 'emi'
-  | 'fuel'
   | 'shopping'
-  | 'healthcare'
-  | 'internet'
+  | 'electronics'
+  | 'salon'
+  | 'recharge'
+  | 'dth'
+  | 'fuel'
   | 'travel'
-  | 'education'
-  | 'subscriptions'
-  | 'taxes'
+  | 'rent'
+  | 'healthcare'
   | 'entertainment'
+  | 'groceries'
+  | 'education'
+  | 'internet'
+  | 'emi'
+  | 'subscriptions'
+  | 'fitness'
+  | 'pets'
   | 'other_expense';
 
 /** Transfer categories */
@@ -40,8 +47,8 @@ export type TransferCategory =
   | 'bank_transfer'
   | 'internal_transfer';
 
-/** All category types */
-export type CategoryType = IncomeCategory | ExpenseCategory | TransferCategory;
+/** All category types (including dynamic custom categories) */
+export type CategoryType = IncomeCategory | ExpenseCategory | TransferCategory | (string & {});
 
 /** Category display info */
 export interface CategoryInfo {

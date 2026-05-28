@@ -13,6 +13,7 @@ import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 export type TabParamList = {
   Dashboard: undefined;
   Transactions: undefined;
+  AddAction: undefined;
   Analytics: undefined;
   Settings: undefined;
 };
