@@ -5,22 +5,35 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppStore } from '@/store/useAppStore';
 import { AppText as Text } from '@/components/ui';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export function AppLockOverlay() {
   const { colors } = useTheme();
-  const isAppLockEnabled = useAppStore(state => state.isAppLockEnabled);
-  
-  // Start locked if lock is enabled
+  const isAppLockEnabled = useAppStore((state) => state.isAppLockEnabled);
+
   const [isLocked, setIsLocked] = useState(isAppLockEnabled);
   const [authFailed, setAuthFailed] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   const authenticate = useCallback(async () => {
+    setIsAuthenticating(true);
+    setAuthFailed(false);
+
     try {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      // Safely check if biometric hardware/enrollment exists
+      let hasHardware = false;
+      let isEnrolled = false;
+      try {
+        hasHardware = await LocalAuthentication.hasHardwareAsync();
+        isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      } catch {
+        // Native module not available — skip lock entirely
+        setIsLocked(false);
+        setIsAuthenticating(false);
+        return;
+      }
 
       if (!hasHardware || !isEnrolled) {
-        // Fallback if hardware isn't available but setting is enabled somehow
         setIsLocked(false);
         return;
       }
@@ -38,14 +51,15 @@ export function AppLockOverlay() {
       } else {
         setAuthFailed(true);
       }
-    } catch (e) {
-      console.warn('App Lock Auth Error', e);
+    } catch {
+      // Any unhandled error — don't crash, just show retry
       setAuthFailed(true);
+    } finally {
+      setIsAuthenticating(false);
     }
   }, []);
 
   useEffect(() => {
-    // Initial check on mount
     if (isAppLockEnabled && isLocked) {
       authenticate();
     }
@@ -55,13 +69,10 @@ export function AppLockOverlay() {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (!isAppLockEnabled) return;
 
-      // Lock when going to background
       if (nextAppState === 'background') {
         setIsLocked(true);
         setAuthFailed(false);
-      } 
-      // Prompt when coming back to active
-      else if (nextAppState === 'active' && isLocked) {
+      } else if (nextAppState === 'active' && isLocked) {
         authenticate();
       }
     };
@@ -71,7 +82,7 @@ export function AppLockOverlay() {
   }, [isAppLockEnabled, isLocked, authenticate]);
 
   if (!isAppLockEnabled || !isLocked) {
-    return null; // Do not render anything, let the app show
+    return null;
   }
 
   return (
@@ -80,28 +91,34 @@ export function AppLockOverlay() {
       <Text variant="heading" bold style={[styles.title, { color: colors.text }]}>
         PaisaTrack is Locked
       </Text>
-      
-      {authFailed && (
-        <Text style={[styles.error, { color: colors.error }]}>
-          Authentication failed. Please try again.
-        </Text>
-      )}
 
-      <TouchableOpacity
-        onPress={authenticate}
-        style={[styles.button, { backgroundColor: colors.primary }]}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.buttonText}>Unlock</Text>
-      </TouchableOpacity>
+      {isAuthenticating ? (
+        <LoadingSpinner message="Authenticating..." />
+      ) : (
+        <>
+          {authFailed && (
+            <Text style={[styles.error, { color: colors.error }]}>
+              Authentication failed. Please try again.
+            </Text>
+          )}
+
+          <TouchableOpacity
+            onPress={authenticate}
+            style={[styles.button, { backgroundColor: colors.primary }]}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.buttonText}>Unlock</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 999999, // High z-index to overlay everything
+    ...StyleSheet.absoluteFill,
+    zIndex: 999999,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -125,5 +142,5 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: 'bold',
-  }
+  },
 });

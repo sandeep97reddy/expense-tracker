@@ -22,6 +22,8 @@ interface AuthState {
   // Actions
   /** Start a login flow */
   setLoading: () => void;
+  /** Reset auth flow after cancel or failure */
+  setUnauthenticated: () => void;
   /** Handle successful login */
   signIn: (user: User, token: string) => Promise<void>;
   /** Handle logout */
@@ -40,6 +42,8 @@ export const useAuthStore = create<AuthState>()(
       isGuest: false,
 
       setLoading: () => set({ status: 'loading' }),
+
+      setUnauthenticated: () => set({ status: 'unauthenticated' }),
 
       signIn: async (user, token) => {
         try {

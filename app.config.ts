@@ -50,6 +50,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'android.permission.RECEIVE_BOOT_COMPLETED',
       'android.permission.VIBRATE',
       'android.permission.SCHEDULE_EXACT_ALARM',
+      'android.permission.POST_NOTIFICATIONS',
     ],
   },
 
@@ -62,8 +63,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     'expo-secure-store',
     'expo-web-browser',
+    'expo-font',
     '@react-native-community/datetimepicker',
     'expo-sharing',
+    [
+      'expo-local-authentication',
+      {
+        faceIDPermission:
+          'Allow Paisa Track to use Face ID for securing your app.',
+      },
+    ],
     [
       'expo-notifications',
       {
@@ -77,7 +86,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-camera',
       {
         cameraPermission:
-          'Allow ExpenseTracker to access your camera to scan UPI QR codes.',
+          'Allow Paisa Track to access your camera to scan UPI QR codes.',
         microphonePermission: false,
         recordAudioAndroid: false,
       },

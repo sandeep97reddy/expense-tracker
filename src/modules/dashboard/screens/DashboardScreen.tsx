@@ -9,13 +9,13 @@ import { AppText as Text } from '@/components/ui/Text';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
-import { useTransactionStore, useGlobalBalance, useMonthlyStats } from '@/modules/transactions/store/useTransactionStore';
+import { useGlobalBalance, useMonthlyStats, useWorkspaceTransactions } from '@/modules/transactions/store/useTransactionStore';
 import { useWorkspaceStore } from '@/modules/workspaces/store/useWorkspaceStore';
 import { useAuthStore } from '@/modules/auth/store/useAuthStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getMonthKey, formatCurrency } from '@/utils/helpers';
-import { getCategoryDetails } from '@/modules/transactions/utils/categories';
+import { RecentTransactionItem } from '@/modules/dashboard/components/RecentTransactionItem';
 import { spacing } from '@/theme/spacing';
 
 export function DashboardScreen() {
@@ -43,14 +43,7 @@ export function DashboardScreen() {
   const { balance } = useGlobalBalance();
   const currentMonthKey = getMonthKey(new Date());
   const { totalIncome, totalExpense } = useMonthlyStats(currentMonthKey);
-  const allTransactions = useTransactionStore((state) => state.transactions);
-
-  // Filter transactions for calculations below
-  const transactions = useMemo(() => {
-    return allTransactions.filter(
-      (tx) => activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId
-    );
-  }, [allTransactions, activeWorkspaceId]);
+  const transactions = useWorkspaceTransactions();
 
   // Recent 5 transactions
   const recentTransactions = useMemo(() => {
@@ -109,11 +102,11 @@ export function DashboardScreen() {
           </View>
         </TouchableOpacity>
         <View className="flex-row items-center gap-2">
-          <IconButton 
+          {/* <IconButton 
             icon="scan-outline" 
             onPress={() => navigation.navigate('Scanner')} 
             backgroundColor="transparent"
-          />
+          /> */}
           <IconButton 
             icon="settings-outline" 
             onPress={() => navigation.navigate('Settings')} 
@@ -209,39 +202,15 @@ export function DashboardScreen() {
             </Card>
           ) : (
             <View className="gap-3">
-              {recentTransactions.map((tx) => {
-                const details = getCategoryDetails(tx.category);
-                return (
-                  <Card key={tx.id}>
-                    <View className="flex-row items-center" style={{ flexDirection: flexDirectionStyle }}>
-                      <View 
-                        className="w-12 h-12 rounded-full items-center justify-center mr-4"
-                        style={{ backgroundColor: `${details.color}20`, marginRight: isRTL ? 0 : 16, marginLeft: isRTL ? 16 : 0 }}
-                      >
-                        <Ionicons name={details.icon as any} size={24} color={details.color} />
-                      </View>
-                      <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
-                        <Text className="text-base font-bold text-text mb-1">{tx.title}</Text>
-                        <Text className="text-xs text-text-muted">{new Date(tx.date).toLocaleDateString()}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text 
-                          className={`text-base font-bold ${
-                            tx.type === 'income' ? 'text-green-500' : 
-                            tx.type === 'expense' ? 'text-red-500' : 'text-text'
-                          }`}
-                        >
-                          {tx.type === 'expense' ? '-' : tx.type === 'income' ? '+' : ''}
-                          {formatCurrency(tx.amount)}
-                        </Text>
-                        <Text className="text-xs text-text-muted uppercase mt-1">
-                          {t(`transactions.${tx.type}`)}
-                        </Text>
-                      </View>
-                    </View>
-                  </Card>
-                );
-              })}
+              {recentTransactions.map((tx) => (
+                <RecentTransactionItem
+                  key={tx.id}
+                  transaction={tx}
+                  flexDirectionStyle={flexDirectionStyle}
+                  isRTL={isRTL}
+                  typeLabel={t(`transactions.${tx.type}`)}
+                />
+              ))}
             </View>
           )}
         </View>

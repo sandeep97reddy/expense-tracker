@@ -2,7 +2,9 @@
 module.exports = function (api) {
   api.cache(true);
 
-  const plugins = process.env.NODE_ENV === 'test' ? [] : ['react-native-reanimated/plugin'];
+  const plugins = process.env.NODE_ENV === 'test' ? [] : [
+    'react-native-reanimated/plugin'
+  ];
 
   // Automatically strip console.log and friends in production builds
   if (process.env.NODE_ENV === 'production' || process.env.BABEL_ENV === 'production') {

@@ -7,7 +7,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri } from 'expo-auth-session';
 import { useAuthStore } from '../store/useAuthStore';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { User } from '../types/auth';
 import { getEnv } from '@/utils/env';
 
@@ -26,7 +26,7 @@ const GOOGLE_CLIENT_IDS = {
  * Must be called inside a React component (e.g., LoginScreen).
  */
 export function useGoogleAuth() {
-  const { signIn, setLoading } = useAuthStore();
+  const { signIn, setLoading, setUnauthenticated } = useAuthStore();
 
   const redirectUri = makeRedirectUri({
     scheme: 'paisatrack',
@@ -40,25 +40,22 @@ export function useGoogleAuth() {
     redirectUri,
   });
 
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { authentication } = response;
-      if (authentication?.accessToken) {
-        setLoading();
-        fetchUserInfo(authentication.accessToken);
-      }
-    } else if (response?.type === 'error') {
-      console.error('[GoogleAuth] Sign in failed:', response.error);
-    }
-  }, [response]);
-
-  const fetchUserInfo = async (token: string) => {
+  const fetchUserInfo = useCallback(async (token: string) => {
     try {
       const res = await fetch('https://www.googleapis.com/userinfo/v2/me', {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      if (!res.ok) {
+        throw new Error(`Userinfo request failed: ${res.status}`);
+      }
+
       const userInfo = await res.json();
-      
+
+      if (!userInfo?.id || !userInfo?.email) {
+        throw new Error('Incomplete user profile from Google');
+      }
+
       const user: User = {
         id: userInfo.id,
         email: userInfo.email,
@@ -72,11 +69,39 @@ export function useGoogleAuth() {
       await signIn(user, token);
     } catch (error) {
       console.error('[GoogleAuth] Failed to fetch user info:', error);
+      setUnauthenticated();
     }
-  };
+  }, [signIn, setUnauthenticated]);
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      if (authentication?.accessToken) {
+        setLoading();
+        fetchUserInfo(authentication.accessToken);
+      } else {
+        setUnauthenticated();
+      }
+    } else if (response?.type === 'error') {
+      console.error('[GoogleAuth] Sign in failed:', response.error);
+      setUnauthenticated();
+    } else if (response?.type === 'cancel' || response?.type === 'dismiss') {
+      setUnauthenticated();
+    }
+  }, [response, setLoading, setUnauthenticated, fetchUserInfo]);
+
+  const signInPrompt = useCallback(async () => {
+    setLoading();
+    try {
+      await promptAsync();
+    } catch (error) {
+      console.error('[GoogleAuth] promptAsync failed:', error);
+      setUnauthenticated();
+    }
+  }, [promptAsync, setLoading, setUnauthenticated]);
 
   return {
     isReady: !!request,
-    promptAsync,
+    signInPrompt,
   };
 }
