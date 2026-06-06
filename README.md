@@ -16,15 +16,13 @@ Paisa Track is a premium, privacy-first expense tracking application built with 
   <img src="screens/Screenshot_2026-06-06-14-04-50-79_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
   <img src="screens/Screenshot_2026-06-06-14-00-53-79_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
   <img src="screens/Screenshot_2026-06-06-14-00-37-88_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  <img src="screens/Screenshot_2026-06-06-14-00-12-87_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
 </p>
 
 <p align="center">
-  <img src="screens/Screenshot_2026-06-06-14-00-12-87_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  
   <img src="screens/Screenshot_2026-06-06-14-00-08-72_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
   <img src="screens/Screenshot_2026-06-06-14-14-46-50_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
-</p>
-
-<p align="center">
   <img src="screens/Screenshot_2026-06-06-14-14-36-32_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
 </p>
 
