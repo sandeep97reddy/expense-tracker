@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet, Modal, FlatList, Alert } from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, Modal, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,6 +64,8 @@ export function SettingsScreen() {
   // Modal Visibility States
   const [langModalVisible, setLangModalVisible] = useState(false);
   const [currencyModalVisible, setCurrencyModalVisible] = useState(false);
+  const [isTogglingLock, setIsTogglingLock] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const themeModeLabel = {
     light: `☀️ ${t('settings.themeLight', 'Light')}`,
@@ -76,15 +78,24 @@ export function SettingsScreen() {
     ? `${CURRENCIES.find((c) => c.code === activeCurrency)?.symbol} ${activeCurrency}`
     : activeCurrency;
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   const toggleAppLock = async () => {
+    if (isTogglingLock) return;
+
+    setIsTogglingLock(true);
     try {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      
+
       if (!hasHardware || !isEnrolled) {
         Alert.alert(t('common.error', 'Not Available'), 'Biometric authentication is not set up on this device.');
         return;
@@ -100,6 +111,8 @@ export function SettingsScreen() {
       }
     } catch (e) {
       console.warn('AppLock toggle error', e);
+    } finally {
+      setIsTogglingLock(false);
     }
   };
 
@@ -256,9 +269,10 @@ export function SettingsScreen() {
         {/* App Lock Tile */}
         <TouchableOpacity
           onPress={toggleAppLock}
+          disabled={isTogglingLock}
           style={[
             styles.settingsTile,
-            { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle },
+            { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle, opacity: isTogglingLock ? 0.6 : 1 },
           ]}
           activeOpacity={0.7}
         >
@@ -269,19 +283,34 @@ export function SettingsScreen() {
             <Text style={[styles.tileTitle, { color: colors.text }]}>App Lock (Biometrics)</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Require fingerprint/face to open app</Text>
           </View>
-          <Badge label={isAppLockEnabled ? 'ON' : 'OFF'} variant={isAppLockEnabled ? 'success' : 'default'} />
+          {isTogglingLock ? (
+            <ActivityIndicator size="small" color="#F59E0B" />
+          ) : (
+            <Badge label={isAppLockEnabled ? 'ON' : 'OFF'} variant={isAppLockEnabled ? 'success' : 'neutral'} />
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={handleSignOut}
+          disabled={isSigningOut}
           style={[
             styles.settingsTile,
-            { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 40, flexDirection: flexDirectionStyle },
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              marginBottom: 40,
+              flexDirection: flexDirectionStyle,
+              opacity: isSigningOut ? 0.6 : 1,
+            },
           ]}
           activeOpacity={0.7}
         >
           <View style={[styles.tileIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
+            {isSigningOut ? (
+              <ActivityIndicator size="small" color={colors.error} />
+            ) : (
+              <Ionicons name="log-out-outline" size={20} color={colors.error} />
+            )}
           </View>
           <View style={{ flex: 1, alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
             <Text style={[styles.tileTitle, { color: colors.error }]}>{t('settings.disconnectSession')}</Text>

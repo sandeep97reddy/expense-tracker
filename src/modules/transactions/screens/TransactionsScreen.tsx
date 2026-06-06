@@ -21,9 +21,9 @@ import { ScreenWrapper } from '@/components/layouts';
 import { Input, Button, Card, Badge } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useTransactionStore, useUniqueTags } from '../store/useTransactionStore';
-import { getCategoryDetails } from '../utils/categories';
-import { formatCurrency, formatDate, getMonthKey } from '@/utils/helpers';
+import { useTransactionStore, useUniqueTags, useWorkspaceTransactions } from '../store/useTransactionStore';
+import { TransactionListItem } from '../components/TransactionListItem';
+import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { Transaction, TransactionType, CategoryType } from '@/types/transaction';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { fontSize, fontWeight } from '@/theme/typography';
@@ -41,17 +41,10 @@ export function TransactionsScreen() {
   const { colors } = useTheme();
   const { t, tCategory, isRTL } = useTranslation();
   const navigation = useNavigation<any>();
-  const { transactions, deleteTransaction } = useTransactionStore();
-  
-  // Workspace integration
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const deleteTransaction = useTransactionStore((state) => state.deleteTransaction);
+  const workspaceTransactions = useWorkspaceTransactions();
+
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  
-  const workspaceTransactions = useMemo(() => {
-    return transactions.filter(
-      (tx) => activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId
-    );
-  }, [transactions, activeWorkspaceId]);
 
   const userRole = useWorkspaceStore((state) => {
     if (!state.activeWorkspaceId) return 'admin';
@@ -160,6 +153,9 @@ export function TransactionsScreen() {
     };
   }, [filteredTransactions]);
 
+  const textAlignment = isRTL ? 'right' : 'left';
+  const flexDirectionStyle = isRTL ? 'row-reverse' : 'row';
+
   // Tag Toggle
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) =>
@@ -209,80 +205,31 @@ export function TransactionsScreen() {
         </Text>
       </View>
     );
-  }, [colors]);
+  }, [colors, flexDirectionStyle]);
 
   // Render Transaction Row
-  const renderItem = useCallback(({ item }: { item: Transaction }) => {
-    const cat = getCategoryDetails(item.category);
-    const formattedAmt = formatCurrency(item.amount);
-    
-    let sign = '';
-    let amtColor = colors.text;
-    if (item.type === 'income') {
-      sign = '+';
-      amtColor = colors.income;
-    } else if (item.type === 'expense') {
-      sign = '-';
-      amtColor = colors.expense;
-    } else if (item.type === 'transfer') {
-      amtColor = colors.transfer;
-    }
+  const handleItemPress = useCallback(
+    (item: Transaction) => navigation.navigate('TransactionDetail', { id: item.id }),
+    [navigation],
+  );
 
-    return (
-      <TouchableOpacity
-        onPress={() => navigation.navigate('TransactionDetail', { id: item.id })}
-        onLongPress={() => setSelectedTx(item)}
-        activeOpacity={0.7}
-        style={[
-          styles.rowCard,
-          { backgroundColor: colors.card, borderBottomColor: colors.border, flexDirection: flexDirectionStyle }
-        ]}
-      >
-        <View style={[styles.leftRow, { flexDirection: flexDirectionStyle }]}>
-          <View 
-            style={[
-              styles.categoryCircle, 
-              { backgroundColor: `${cat.color}15`, marginRight: isRTL ? 0 : spacing.md, marginLeft: isRTL ? spacing.md : 0 }
-            ]}
-          >
-            <Ionicons name={cat.icon as any} size={20} color={cat.color} />
-          </View>
-          <View style={[styles.textColumn, { alignItems: isRTL ? 'flex-end' : 'flex-start' }]}>
-            <Text style={[styles.rowTitle, { color: colors.text }]} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <View style={[styles.metadataIndicators, { flexDirection: flexDirectionStyle }]}>
-              <Text style={{ color: colors.textSecondary, fontSize: 11 }}>{tCategory(item.category)}</Text>
-              
-              {item.recurring && (
-                <Ionicons name="repeat" size={12} color={colors.primary} style={{ marginLeft: spacing.xs, marginRight: spacing.xs }} />
-              )}
-              {item.attachments && item.attachments.length > 0 && (
-                <Ionicons name="attach" size={12} color={colors.info} style={{ marginLeft: spacing.xs, marginRight: spacing.xs }} />
-              )}
-              {item.splitDetails && item.splitDetails.length > 0 && (
-                <Ionicons name="people" size={12} color={colors.warning} style={{ marginLeft: spacing.xs, marginRight: spacing.xs }} />
-              )}
-            </View>
-          </View>
-        </View>
+  const handleItemLongPress = useCallback((item: Transaction) => {
+    setSelectedTx(item);
+  }, []);
 
-        <View style={[styles.rightRow, { alignItems: isRTL ? 'flex-start' : 'flex-end' }]}>
-          <Text style={[styles.rowAmount, { color: amtColor }]}>
-            {sign}{formattedAmt}
-          </Text>
-          {item.type === 'transfer' && (
-            <Text style={[styles.transferLabel, { color: colors.textTertiary }]}>
-              {item.fromAccount} → {item.toAccount}
-            </Text>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  }, [colors, tCategory, isRTL, spacing, navigation, flexDirectionStyle]);
-
-  const textAlignment = isRTL ? 'right' : 'left';
-  const flexDirectionStyle = isRTL ? 'row-reverse' : 'row';
+  const renderItem = useCallback(
+    ({ item }: { item: Transaction }) => (
+      <TransactionListItem
+        item={item}
+        isRTL={isRTL}
+        flexDirectionStyle={flexDirectionStyle}
+        onPress={handleItemPress}
+        onLongPress={handleItemLongPress}
+        tCategory={tCategory}
+      />
+    ),
+    [isRTL, flexDirectionStyle, handleItemPress, handleItemLongPress, tCategory],
+  );
 
   return (
     <ScreenWrapper style={{ backgroundColor: colors.background }}>
@@ -586,46 +533,6 @@ const styles = StyleSheet.create({
   sectionNet: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
-  },
-  rowCard: {
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
-  },
-  leftRow: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  categoryCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  textColumn: {
-    flex: 1,
-  },
-  rowTitle: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-  },
-  metadataIndicators: {
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  rightRow: {
-    minWidth: 70,
-  },
-  rowAmount: {
-    fontSize: fontSize.sm + 1,
-    fontWeight: fontWeight.bold,
-  },
-  transferLabel: {
-    fontSize: fontSize.xs - 2,
-    marginTop: 2,
   },
   emptyContainer: {
     alignItems: 'center',

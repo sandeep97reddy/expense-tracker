@@ -12,15 +12,17 @@ import {
   Image,
   Modal,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { ScreenWrapper } from '@/components/layouts';
-import { Card, Button, Badge } from '@/components/ui';
+import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useTransactionStore } from '../store/useTransactionStore';
+import { useStoreHydration } from '@/hooks/useStoreHydration';
+import { useTransactionStore, useTransactionById } from '../store/useTransactionStore';
 import { useWorkspaceStore } from '@/modules/workspaces/store/useWorkspaceStore';
 import { useAuthStore } from '@/modules/auth/store/useAuthStore';
 import { getCategoryDetails } from '../utils/categories';
@@ -38,8 +40,9 @@ export function TransactionDetailScreen() {
   const route = useRoute<DetailRouteProp>();
   const { id } = route.params;
 
-  const { transactions, deleteTransaction } = useTransactionStore();
-  const tx = transactions.find((t) => t.id === id);
+  const { isHydrated } = useStoreHydration();
+  const tx = useTransactionById(id);
+  const deleteTransaction = useTransactionStore((state) => state.deleteTransaction);
 
   const userRole = useWorkspaceStore((state) => {
     if (!state.activeWorkspaceId) return 'admin';
@@ -52,6 +55,10 @@ export function TransactionDetailScreen() {
 
   // Attachment Modal State
   const [activeImage, setActiveImage] = useState<string | null>(null);
+
+  if (!isHydrated) {
+    return <LoadingSpinner fullScreen />;
+  }
 
   if (!tx) {
     return (
@@ -279,6 +286,7 @@ export function TransactionDetailScreen() {
                   onPress={() => setActiveImage(uri)}
                   style={[styles.attachmentThumb, { borderColor: colors.border }]}
                 >
+                  <ActivityIndicator style={StyleSheet.absoluteFill} size="small" color={colors.primary} />
                   <Image source={{ uri }} style={styles.thumbImage} />
                 </TouchableOpacity>
               ))}
@@ -306,7 +314,10 @@ export function TransactionDetailScreen() {
             <Ionicons name="close" size={32} color="#FFFFFF" />
           </TouchableOpacity>
           {activeImage && (
-            <Image source={{ uri: activeImage }} style={styles.imgModalView} resizeMode="contain" />
+            <>
+              <ActivityIndicator style={StyleSheet.absoluteFill} size="large" color="#FFFFFF" />
+              <Image source={{ uri: activeImage }} style={styles.imgModalView} resizeMode="contain" />
+            </>
           )}
         </View>
       </Modal>

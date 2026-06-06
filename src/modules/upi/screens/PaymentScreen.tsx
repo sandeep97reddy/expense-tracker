@@ -11,13 +11,14 @@ import {
   Animated,
   Platform,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import * as FileSystem from 'expo-file-system/legacy';
 import { ScreenWrapper, KeyboardAvoidingWrapper } from '@/components/layouts';
-import { Button, Input, Card } from '@/components/ui';
+import { Button, Input, Card, LoadingSpinner } from '@/components/ui';
 import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTransactionStore } from '@/modules/transactions/store/useTransactionStore';
@@ -360,6 +361,16 @@ export function PaymentScreen() {
           <View style={{ width: 24 }} />
         </View>
 
+        {/* Waiting for payment banner */}
+        {awaitingReturn && (
+          <View style={[styles.waitingBanner, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]}>
+            <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+            <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>
+              Waiting for payment completion...
+            </Text>
+          </View>
+        )}
+
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           {/* Modern Payment Confirmation Card */}
           <View style={[
@@ -567,6 +578,12 @@ export function PaymentScreen() {
         </View>
       )}
 
+      {isGeneratingQR && (
+        <View style={styles.generatingOverlay}>
+          <LoadingSpinner message={t('upi.preparingPayment', 'Preparing payment...')} />
+        </View>
+      )}
+
       {/* ─── In-app Snackbar with Undo ─────────────────────────────────────── */}
       {snackbarVisible && (
         <Animated.View
@@ -734,6 +751,17 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: spacing.lg,
   },
+  waitingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+  },
   paymentCard: {
     borderRadius: borderRadius.xl,
     marginBottom: spacing.xl,
@@ -897,6 +925,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -1000,
     left: -1000,
+  },
+  generatingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
   // ─── Snackbar styles ──────────────────────────────────────────────────────
   snackbar: {

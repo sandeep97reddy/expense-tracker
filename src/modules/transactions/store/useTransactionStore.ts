@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { useMemo } from 'react';
 import { zustandMMKVStorage } from '@/services/storage/mmkv';
 import type { Transaction, MonthlyStats, RecurrenceRule } from '@/types/transaction';
 import { generateId, getMonthKey } from '@/utils/helpers';
@@ -339,87 +340,104 @@ function getDueRecurringDates(
   return dates;
 }
 
+/** Filter transactions to personal account or active workspace (matches Dashboard). */
+export function filterTransactionsForWorkspace(
+  transactions: Transaction[],
+  activeWorkspaceId: string | null,
+): Transaction[] {
+  return transactions.filter((tx) =>
+    activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId,
+  );
+}
+
+/** Workspace-scoped transaction list with memoized filtering. */
+export function useWorkspaceTransactions(): Transaction[] {
+  const transactions = useTransactionStore((state) => state.transactions);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+
+  return useMemo(
+    () => filterTransactionsForWorkspace(transactions, activeWorkspaceId),
+    [transactions, activeWorkspaceId],
+  );
+}
+
+/** Select a single transaction by ID. */
+export function useTransactionById(id: string): Transaction | undefined {
+  return useTransactionStore((state) => state.transactions.find((tx) => tx.id === id));
+}
+
 /**
  * High-performance selector for getting comprehensive monthly calculations
  */
 export function useMonthlyStats(monthKey: string): MonthlyStats {
-  const transactions = useTransactionStore((state) => state.transactions);
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceTransactions = useWorkspaceTransactions();
 
-  // Filter calculation internally by active workspace
-  const filtered = transactions.filter(
-    (tx) => tx.monthKey === monthKey && (activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId)
-  );
+  return useMemo(() => {
+    const filtered = workspaceTransactions.filter((tx) => tx.monthKey === monthKey);
 
-  let totalIncome = 0;
-  let totalExpense = 0;
-  const categoryBreakdown: Record<string, number> = {};
+    let totalIncome = 0;
+    let totalExpense = 0;
+    const categoryBreakdown: Record<string, number> = {};
 
-  filtered.forEach((tx) => {
-    if (tx.type === 'income') {
-      totalIncome += tx.amount;
-    } else if (tx.type === 'expense') {
-      totalExpense += tx.amount;
-      categoryBreakdown[tx.category] = (categoryBreakdown[tx.category] || 0) + tx.amount;
-    }
-    // Note: Transfers are internal cash flow shifts and do not affect total income/expense summaries
-  });
+    filtered.forEach((tx) => {
+      if (tx.type === 'income') {
+        totalIncome += tx.amount;
+      } else if (tx.type === 'expense') {
+        totalExpense += tx.amount;
+        categoryBreakdown[tx.category] = (categoryBreakdown[tx.category] || 0) + tx.amount;
+      }
+    });
 
-  return {
-    monthKey,
-    totalIncome,
-    totalExpense,
-    savings: totalIncome - totalExpense,
-    categoryBreakdown,
-    transactionCount: filtered.length,
-  };
+    return {
+      monthKey,
+      totalIncome,
+      totalExpense,
+      savings: totalIncome - totalExpense,
+      categoryBreakdown,
+      transactionCount: filtered.length,
+    };
+  }, [workspaceTransactions, monthKey]);
 }
 
 /**
  * High-performance selector to get global ledger balances
  */
 export function useGlobalBalance() {
-  const transactions = useTransactionStore((state) => state.transactions);
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceTransactions = useWorkspaceTransactions();
 
-  const filtered = transactions.filter(
-    (tx) => activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId
-  );
+  return useMemo(() => {
+    let totalIncome = 0;
+    let totalExpense = 0;
 
-  let totalIncome = 0;
-  let totalExpense = 0;
+    workspaceTransactions.forEach((tx) => {
+      if (tx.type === 'income') {
+        totalIncome += tx.amount;
+      } else if (tx.type === 'expense') {
+        totalExpense += tx.amount;
+      }
+    });
 
-  filtered.forEach((tx) => {
-    if (tx.type === 'income') {
-      totalIncome += tx.amount;
-    } else if (tx.type === 'expense') {
-      totalExpense += tx.amount;
-    }
-  });
-
-  return {
-    balance: totalIncome - totalExpense,
-    totalIncome,
-    totalExpense,
-  };
+    return {
+      balance: totalIncome - totalExpense,
+      totalIncome,
+      totalExpense,
+    };
+  }, [workspaceTransactions]);
 }
 
 /**
- * Selector to extract unique tags across all transactions to display in filters
+ * Selector to extract unique tags across workspace transactions for filters
  */
 export function useUniqueTags(): string[] {
-  const transactions = useTransactionStore((state) => state.transactions);
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceTransactions = useWorkspaceTransactions();
 
-  const filtered = transactions.filter(
-    (tx) => activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId
-  );
+  return useMemo(() => {
+    const tagsSet = new Set<string>();
 
-  const tagsSet = new Set<string>();
+    workspaceTransactions.forEach((tx) => {
+      tx.tags?.forEach((tag) => tagsSet.add(tag.trim().toLowerCase()));
+    });
 
-  filtered.forEach((tx) => {
-    tx.tags?.forEach((tag) => tagsSet.add(tag.trim().toLowerCase()));
-  });
-
-  return Array.from(tagsSet).sort();
+    return Array.from(tagsSet).sort();
+  }, [workspaceTransactions]);
 }

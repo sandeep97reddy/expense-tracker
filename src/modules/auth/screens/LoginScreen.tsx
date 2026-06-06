@@ -17,13 +17,13 @@ import { spacing } from '@/theme/spacing';
 export function LoginScreen() {
   const { colors } = useTheme();
   const { status, continueAsGuest } = useAuthStore();
-  const { isReady, promptAsync } = useGoogleAuth();
+  const { isReady, signInPrompt } = useGoogleAuth();
 
   const isLoading = status === 'loading';
 
   const handleGoogleSignIn = () => {
     if (isReady) {
-      promptAsync();
+      signInPrompt();
     }
   };
 

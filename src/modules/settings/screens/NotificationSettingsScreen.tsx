@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Switch, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, ScrollView, StyleSheet, Switch, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
@@ -23,57 +23,78 @@ export function NotificationSettingsScreen() {
   const setDailyReminderEnabled = useAppStore((s) => s.setDailyReminderEnabled);
   const setBudgetAlertsEnabled = useAppStore((s) => s.setBudgetAlertsEnabled);
 
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+
   const textAlignment = isRTL ? 'right' : 'left';
   const flexDirectionStyle = isRTL ? 'row-reverse' : 'row';
 
   const handleMasterToggle = async (value: boolean) => {
+    if (isRegistering) return;
+
+    setIsRegistering(true);
+    const previousEnabled = notificationsEnabled;
+    const previousDaily = dailyReminderEnabled;
+    const previousBudget = budgetAlertsEnabled;
+
     setNotificationsEnabled(value);
-    
-    if (value) {
-      // Request permissions
-      const token = await notificationService.registerForPushNotificationsAsync();
-      if (!token) {
-        // If permission denied, revert toggle
-        setNotificationsEnabled(false);
+
+    try {
+      if (value) {
+        const token = await notificationService.registerForPushNotificationsAsync();
+        if (!token) {
+          setNotificationsEnabled(previousEnabled);
+          setDailyReminderEnabled(previousDaily);
+          setBudgetAlertsEnabled(previousBudget);
+          return;
+        }
+      } else {
+        await notificationService.cancelAllScheduledNotifications();
         setDailyReminderEnabled(false);
         setBudgetAlertsEnabled(false);
-        return;
       }
-    } else {
-      // Cancel all if disabled
-      await notificationService.cancelAllScheduledNotifications();
-      setDailyReminderEnabled(false);
-      setBudgetAlertsEnabled(false);
+    } finally {
+      setIsRegistering(false);
     }
   };
 
   const handleDailyReminderToggle = async (value: boolean) => {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || isScheduling || isRegistering) return;
+
+    setIsScheduling(true);
+    const previousDaily = dailyReminderEnabled;
     setDailyReminderEnabled(value);
-    if (value) {
-      // Schedule for 8:00 PM everyday as default
-      await notificationService.scheduleDailyReminder(
-        20,
-        0,
-        t('notifications.reminderTitle'),
-        t('notifications.reminderBody')
-      );
-    } else {
-      await notificationService.cancelAllScheduledNotifications();
+
+    try {
+      if (value) {
+        await notificationService.scheduleDailyReminder(
+          20,
+          0,
+          t('notifications.reminderTitle'),
+          t('notifications.reminderBody'),
+        );
+      } else {
+        await notificationService.cancelAllScheduledNotifications();
+      }
+    } catch {
+      setDailyReminderEnabled(previousDaily);
+    } finally {
+      setIsScheduling(false);
     }
   };
 
   const handleBudgetAlertsToggle = (value: boolean) => {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || isRegistering || isScheduling) return;
     setBudgetAlertsEnabled(value);
   };
 
+  const switchesDisabled = isRegistering || isScheduling;
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border, flexDirection: flexDirectionStyle }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name={isRTL ? "chevron-forward" : "chevron-back"} size={28} color={colors.text} />
+          <Ionicons name={isRTL ? 'chevron-forward' : 'chevron-back'} size={28} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text, textAlign: textAlignment }]}>
           {t('notifications.title')}
@@ -85,7 +106,6 @@ export function NotificationSettingsScreen() {
           {t('notifications.subtitle')}
         </Text>
 
-        {/* Master Toggle */}
         <View style={[styles.settingRow, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle }]}>
           <View style={[styles.iconBox, { backgroundColor: `${colors.primary}1A` }]}>
             <Ionicons name="notifications-outline" size={20} color={colors.primary} />
@@ -95,15 +115,29 @@ export function NotificationSettingsScreen() {
               {t('notifications.masterToggle')}
             </Text>
           </View>
-          <Switch
-            value={notificationsEnabled}
-            onValueChange={handleMasterToggle}
-            trackColor={{ false: colors.border, true: colors.primary }}
-          />
+          {isRegistering ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleMasterToggle}
+              disabled={switchesDisabled}
+              trackColor={{ false: colors.border, true: colors.primary }}
+            />
+          )}
         </View>
 
-        {/* Daily Reminder */}
-        <View style={[styles.settingRow, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle, opacity: notificationsEnabled ? 1 : 0.5 }]}>
+        <View
+          style={[
+            styles.settingRow,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              flexDirection: flexDirectionStyle,
+              opacity: notificationsEnabled ? 1 : 0.5,
+            },
+          ]}
+        >
           <View style={[styles.iconBox, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
             <Ionicons name="alarm-outline" size={20} color="#10B981" />
           </View>
@@ -115,16 +149,29 @@ export function NotificationSettingsScreen() {
               {t('notifications.dailyReminderSubtitle')}
             </Text>
           </View>
-          <Switch
-            value={dailyReminderEnabled}
-            onValueChange={handleDailyReminderToggle}
-            disabled={!notificationsEnabled}
-            trackColor={{ false: colors.border, true: '#10B981' }}
-          />
+          {isScheduling ? (
+            <ActivityIndicator size="small" color="#10B981" />
+          ) : (
+            <Switch
+              value={dailyReminderEnabled}
+              onValueChange={handleDailyReminderToggle}
+              disabled={!notificationsEnabled || switchesDisabled}
+              trackColor={{ false: colors.border, true: '#10B981' }}
+            />
+          )}
         </View>
 
-        {/* Budget Alerts */}
-        <View style={[styles.settingRow, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: flexDirectionStyle, opacity: notificationsEnabled ? 1 : 0.5 }]}>
+        <View
+          style={[
+            styles.settingRow,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              flexDirection: flexDirectionStyle,
+              opacity: notificationsEnabled ? 1 : 0.5,
+            },
+          ]}
+        >
           <View style={[styles.iconBox, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
             <Ionicons name="warning-outline" size={20} color="#F59E0B" />
           </View>
@@ -139,7 +186,7 @@ export function NotificationSettingsScreen() {
           <Switch
             value={budgetAlertsEnabled}
             onValueChange={handleBudgetAlertsToggle}
-            disabled={!notificationsEnabled}
+            disabled={!notificationsEnabled || switchesDisabled}
             trackColor={{ false: colors.border, true: '#F59E0B' }}
           />
         </View>

@@ -13,6 +13,7 @@ import {
   Alert,
   Image,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -96,6 +97,8 @@ export function AddTransactionScreen() {
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [note, setNote] = useState<string>('');
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [isPickingImage, setIsPickingImage] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Custom Category State
   const addCustomCategory = useCategoryStore((state) => state.addCustomCategory);
@@ -162,6 +165,8 @@ export function AddTransactionScreen() {
 
   // Image Picking Handler
   const handlePickImage = async () => {
+    if (isPickingImage) return;
+
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert(t('common.error'), t('upi.cameraPermission'));
@@ -176,8 +181,8 @@ export function AddTransactionScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const tempUri = result.assets[0].uri;
+      setIsPickingImage(true);
       try {
-        // Copy to persistent document directory
         const fileName = tempUri.split('/').pop();
         const persistentUri = `${FileSystem.documentDirectory}${Date.now()}_${fileName}`;
         await FileSystem.copyAsync({ from: tempUri, to: persistentUri });
@@ -185,6 +190,8 @@ export function AddTransactionScreen() {
       } catch (err) {
         console.error('Failed to save receipt image:', err);
         Alert.alert(t('common.error'), 'Failed to persist receipt image.');
+      } finally {
+        setIsPickingImage(false);
       }
     }
   };
@@ -232,7 +239,7 @@ export function AddTransactionScreen() {
   };
 
   // Save Handler
-  const handleSave = () => {
+  const handleSave = async () => {
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       Alert.alert(t('common.error'), t('transactions.amountPositive'));
@@ -260,22 +267,26 @@ export function AddTransactionScreen() {
       splitDetails: type === 'expense' && isSplit && splits.length > 0 ? splits : undefined,
     };
 
-    if (transactionId) {
-      updateTransaction(transactionId, txData);
-    } else {
-      addTransaction(txData);
+    setIsSaving(true);
+    try {
+      if (transactionId) {
+        updateTransaction(transactionId, txData);
+      } else {
+        addTransaction(txData);
 
-      // --- Budget Alert Check ---
-      const appState = useAppStore.getState();
-      if (appState.budgetAlertsEnabled && type === 'expense' && parsedAmount > 5000) {
-        notificationService.scheduleLocalNotification(
-          t('notifications.budgetAlertTitle') || 'Budget Alert ⚠️',
-          t('notifications.budgetAlertBody') || 'You have exceeded your budget for this category.'
-        );
+        const appState = useAppStore.getState();
+        if (appState.budgetAlertsEnabled && type === 'expense' && parsedAmount > 5000) {
+          await notificationService.scheduleLocalNotification(
+            t('notifications.budgetAlertTitle') || 'Budget Alert ⚠️',
+            t('notifications.budgetAlertBody') || 'You have exceeded your budget for this category.',
+          );
+        }
       }
-    }
 
-    navigation.goBack();
+      navigation.goBack();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const categoryDetails = getCategoriesByType(type);
@@ -624,10 +635,18 @@ export function AddTransactionScreen() {
           {/* Receipt Uploader */}
           <Card style={[styles.cardSection, { borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text, textAlign: textAlignment }]}>{t('transactions.receipt')}</Text>
-            <TouchableOpacity onPress={handlePickImage} style={[styles.uploadCard, { borderColor: colors.border }]}>
-              <Ionicons name="camera-outline" size={32} color={colors.textTertiary} />
+            <TouchableOpacity
+              onPress={handlePickImage}
+              disabled={isPickingImage}
+              style={[styles.uploadCard, { borderColor: colors.border, opacity: isPickingImage ? 0.6 : 1 }]}
+            >
+              {isPickingImage ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="camera-outline" size={32} color={colors.textTertiary} />
+              )}
               <Text style={{ color: colors.textSecondary, marginTop: spacing.xs }}>
-                {t('transactions.uploadReceipt')}
+                {isPickingImage ? t('common.loading') : t('transactions.uploadReceipt')}
               </Text>
             </TouchableOpacity>
 
@@ -655,6 +674,8 @@ export function AddTransactionScreen() {
             variant="primary"
             size="lg"
             fullWidth
+            loading={isSaving}
+            disabled={isSaving || isPickingImage}
             style={{ marginTop: spacing.md, marginBottom: spacing['2xl'] }}
           />
         </ScrollView>

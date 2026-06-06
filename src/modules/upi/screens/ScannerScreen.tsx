@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
-import { useNavigation } from '@react-navigation/native';
+import { useIsFocused } from '@react-navigation/native';
 import { RootStackScreenProps } from '@/navigation/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
@@ -12,7 +12,7 @@ import QRCode from 'react-native-qrcode-svg';
 import * as FileSystem from 'expo-file-system/legacy';
 import { spacing, borderRadius } from '@/theme/spacing';
 import { fontSize, fontWeight } from '@/theme/typography';
-import { Button } from '@/components/ui/Button';
+import { Button, LoadingSpinner } from '@/components/ui';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SCAN_AREA_SIZE = SCREEN_WIDTH * 0.7;
@@ -20,6 +20,7 @@ const SCAN_AREA_SIZE = SCREEN_WIDTH * 0.7;
 export function ScannerScreen({ navigation }: RootStackScreenProps<'Scanner'>) {
   const { colors } = useTheme();
   const { t, isRTL } = useTranslation();
+  const isFocused = useIsFocused();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -144,7 +145,7 @@ export function ScannerScreen({ navigation }: RootStackScreenProps<'Scanner'>) {
   if (!permission) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ color: colors.text }}>{t('common.loading')}</Text>
+        <LoadingSpinner message={t('common.loading')} />
       </View>
     );
   }
@@ -180,6 +181,7 @@ export function ScannerScreen({ navigation }: RootStackScreenProps<'Scanner'>) {
     <View style={styles.container}>
       <CameraView
         style={StyleSheet.absoluteFill}
+        active={isFocused && !isGenerating}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
       />
@@ -207,6 +209,12 @@ export function ScannerScreen({ navigation }: RootStackScreenProps<'Scanner'>) {
           <Text style={styles.instructionText}>{t('upi.scannerInstructions')}</Text>
         </View>
       </View>
+
+      {isGenerating && (
+        <View style={styles.generatingOverlay}>
+          <LoadingSpinner message={t('upi.preparingPayment', 'Preparing payment...')} />
+        </View>
+      )}
     </View>
   );
 }
@@ -292,5 +300,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -1000,
     left: -1000,
+  },
+  generatingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
 });

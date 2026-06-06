@@ -26,11 +26,29 @@ export interface BudgetProgress {
   icon: string;
 }
 
+/** Scope transactions to personal account or active workspace (matches Dashboard). */
+export function filterTransactionsByWorkspace(
+  transactions: Transaction[],
+  activeWorkspaceId?: string | null,
+): Transaction[] {
+  if (activeWorkspaceId === undefined) {
+    return transactions;
+  }
+  return transactions.filter((tx) =>
+    activeWorkspaceId ? tx.workspaceId === activeWorkspaceId : !tx.workspaceId,
+  );
+}
+
 /**
  * Returns formatted data for a Pie chart (Expenses only) for a given month
  */
-export function getCategoryBreakdown(transactions: Transaction[], monthKey: string): PieChartData[] {
-  const expenses = transactions.filter(t => t.type === 'expense' && t.monthKey === monthKey);
+export function getCategoryBreakdown(
+  transactions: Transaction[],
+  monthKey: string,
+  activeWorkspaceId?: string | null,
+): PieChartData[] {
+  const scoped = filterTransactionsByWorkspace(transactions, activeWorkspaceId);
+  const expenses = scoped.filter((t) => t.type === 'expense' && t.monthKey === monthKey);
   
   const grouped = expenses.reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount;
@@ -56,9 +74,16 @@ export function getCategoryBreakdown(transactions: Transaction[], monthKey: stri
  * Returns formatted data for a Bar chart (Income vs Expense) for a given year
  * Format for react-native-gifted-charts grouped bars
  */
-export function getMonthlyTrends(transactions: Transaction[], year: number) {
+export function getMonthlyTrends(
+  transactions: Transaction[],
+  year: number,
+  activeWorkspaceId?: string | null,
+) {
+  const scoped = filterTransactionsByWorkspace(transactions, activeWorkspaceId);
   const prefix = `${year}-`;
-  const yearTransactions = transactions.filter(t => t.monthKey.startsWith(prefix) && (t.type === 'income' || t.type === 'expense'));
+  const yearTransactions = scoped.filter(
+    (t) => t.monthKey.startsWith(prefix) && (t.type === 'income' || t.type === 'expense'),
+  );
   
   // Group by month
   const monthlyData: Record<string, { income: number, expense: number }> = {};
@@ -103,8 +128,14 @@ export function getMonthlyTrends(transactions: Transaction[], year: number) {
 /**
  * Returns budget progress for all categories that have a budget set
  */
-export function getBudgetProgress(transactions: Transaction[], budgets: Record<string, number>, monthKey: string): BudgetProgress[] {
-  const expenses = transactions.filter(t => t.type === 'expense' && t.monthKey === monthKey);
+export function getBudgetProgress(
+  transactions: Transaction[],
+  budgets: Record<string, number>,
+  monthKey: string,
+  activeWorkspaceId?: string | null,
+): BudgetProgress[] {
+  const scoped = filterTransactionsByWorkspace(transactions, activeWorkspaceId);
+  const expenses = scoped.filter((t) => t.type === 'expense' && t.monthKey === monthKey);
   
   const spentByCategory = expenses.reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount;
