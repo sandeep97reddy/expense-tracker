@@ -15,7 +15,6 @@ type EnvKey =
 
 /** Variables that are required in production — missing them is a hard error */
 const REQUIRED_IN_PRODUCTION: EnvKey[] = [
-  'EXPO_PUBLIC_API_BASE_URL',
   'EXPO_PUBLIC_APP_ENV',
   'EXPO_PUBLIC_APP_NAME',
   'EXPO_PUBLIC_APP_VERSION',

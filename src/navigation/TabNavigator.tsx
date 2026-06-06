@@ -1,6 +1,6 @@
 /**
  * TabNavigator — Bottom tab navigation
- * 4 tabs: Dashboard, Transactions, Analytics, Settings
+ * 4 tabs: Dashboard, Transactions, Analytics + FAB actions
  * Theme-aware styling with custom icons.
  */
 
@@ -12,11 +12,10 @@ import { useNavigation } from '@react-navigation/native';
 import type { TabParamList } from './types';
 import { useTheme } from '@/hooks/useTheme';
 
-// Placeholder screens — will be replaced with real module screens
 import { DashboardScreen } from '@/modules/dashboard/screens/DashboardScreen';
 import { TransactionsScreen } from '@/modules/transactions/screens/TransactionsScreen';
 import { AnalyticsScreen } from '@/modules/analytics/screens/AnalyticsScreen';
-import { SettingsScreen } from '@/modules/settings/screens/SettingsScreen';
+import { ErrorBoundary } from '@/components/feedback/ErrorBoundary';
 
 const Tab = createBottomTabNavigator<TabParamList>();
 
@@ -26,11 +25,11 @@ const TAB_ICONS: Record<keyof TabParamList, { focused: IoniconsName; unfocused: 
   Dashboard: { focused: 'home', unfocused: 'home-outline' },
   Transactions: { focused: 'swap-horizontal', unfocused: 'swap-horizontal-outline' },
   AddAction: { focused: 'add', unfocused: 'add' },
+  ScanAction: { focused: 'qr-code', unfocused: 'qr-code-outline' },
   Analytics: { focused: 'pie-chart', unfocused: 'pie-chart-outline' },
-  Settings: { focused: 'settings', unfocused: 'settings-outline' },
 };
 
-function FloatingActionButton({ onPress }: any) {
+function FloatingActionButton({ onPress }: { onPress: () => void }) {
   const { colors } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -81,6 +80,25 @@ function FloatingActionButton({ onPress }: any) {
   );
 }
 
+function ScanTabButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.7}
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 8,
+      }}
+    >
+      <Ionicons name="qr-code-outline" size={24} color={colors.tabIconDefault} />
+    </TouchableOpacity>
+  );
+}
+
 export function TabNavigator() {
   const { colors } = useTheme();
   const navigation = useNavigation<any>();
@@ -88,6 +106,7 @@ export function TabNavigator() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
+        lazy: true,
         headerShown: false,
         tabBarIcon: ({ focused, size }) => {
           const icons = TAB_ICONS[route.name];
@@ -126,16 +145,29 @@ export function TabNavigator() {
         options={{
           tabBarIcon: () => null,
           tabBarLabel: () => null,
-          tabBarButton: (props) => (
-            <FloatingActionButton
-              {...props}
-              onPress={() => navigation.navigate('AddTransaction')}
-            />
+          tabBarButton: () => (
+            <FloatingActionButton onPress={() => navigation.navigate('AddTransaction')} />
           ),
         }}
       />
-      <Tab.Screen name="Analytics" component={AnalyticsScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen
+        name="ScanAction"
+        component={View}
+        options={{
+          tabBarIcon: () => null,
+          tabBarLabel: () => null,
+          tabBarButton: () => (
+            <ScanTabButton onPress={() => navigation.navigate('Scanner')} />
+          ),
+        }}
+      />
+      <Tab.Screen name="Analytics">
+        {() => (
+          <ErrorBoundary>
+            <AnalyticsScreen />
+          </ErrorBoundary>
+        )}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

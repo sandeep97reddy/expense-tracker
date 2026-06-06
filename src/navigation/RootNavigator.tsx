@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { InteractionManager } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
 import { TabNavigator } from './TabNavigator';
@@ -14,32 +15,39 @@ import { navLogger } from '@/services/logger/logger';
 import { AddTransactionScreen } from '@/modules/transactions/screens/AddTransactionScreen';
 import { TransactionDetailScreen } from '@/modules/transactions/screens/TransactionDetailScreen';
 import { WorkspaceManagerScreen } from '@/modules/workspaces/screens/WorkspaceManagerScreen';
+import { SettingsScreen } from '@/modules/settings/screens/SettingsScreen';
 import { NotificationSettingsScreen } from '@/modules/settings/screens/NotificationSettingsScreen';
 import { useTransactionStore } from '@/modules/transactions/store/useTransactionStore';
-
-import { ScannerScreen } from '@/modules/upi/screens/ScannerScreen';
 import { PaymentScreen } from '@/modules/upi/screens/PaymentScreen';
+import { ScannerScreen } from '@/modules/upi/screens/ScannerScreen';
+import { useStoreHydration } from '@/hooks/useStoreHydration';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   const { status, hydrate } = useAuthStore();
-  const [isReady, setIsReady] = useState(false);
+  const { isHydrated: storesHydrated } = useStoreHydration();
+  const [isBootComplete, setIsBootComplete] = useState(false);
 
   useEffect(() => {
-    // Hydrate auth state on mount (checks SecureStore for token)
-    hydrate().finally(() => {
-      // Passive Offline Recurring Reconciliation Engine Trigger
-      try {
-        useTransactionStore.getState().processRecurringTransactions();
-      } catch (err) {
-        navLogger.error('Failed to process recurring transactions', err);
-      }
-      setIsReady(true);
-    });
-  }, [hydrate]);
+    if (!storesHydrated) return;
 
-  if (!isReady || status === 'idle' || status === 'loading') {
+    hydrate()
+      .finally(() => {
+        setIsBootComplete(true);
+
+        // Defer heavy recurring transaction processing until after first paint
+        InteractionManager.runAfterInteractions(() => {
+          try {
+            useTransactionStore.getState().processRecurringTransactions();
+          } catch (err) {
+            navLogger.error('Failed to process recurring transactions', err);
+          }
+        });
+      });
+  }, [storesHydrated, hydrate]);
+
+  if (!storesHydrated || !isBootComplete || status === 'idle' || status === 'loading') {
     return <LoadingSpinner fullScreen />;
   }
 
@@ -58,12 +66,14 @@ export function RootNavigator() {
         <Stack.Screen name="Auth" component={AuthNavigator} />
       )}
 
+      <Stack.Screen name="Scanner" component={ScannerScreen} />
+
       <Stack.Group screenOptions={{ presentation: 'modal', animation: 'slide_from_bottom' }}>
         <Stack.Screen name="AddTransaction" component={AddTransactionScreen} />
         <Stack.Screen name="TransactionDetail" component={TransactionDetailScreen} />
         <Stack.Screen name="WorkspaceManager" component={WorkspaceManagerScreen} />
+        <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
-        <Stack.Screen name="Scanner" component={ScannerScreen} />
         <Stack.Screen name="Payment" component={PaymentScreen} />
       </Stack.Group>
     </Stack.Navigator>

@@ -14,8 +14,8 @@ export type TabParamList = {
   Dashboard: undefined;
   Transactions: undefined;
   AddAction: undefined;
+  ScanAction: undefined;
   Analytics: undefined;
-  Settings: undefined;
 };
 
 /**
@@ -49,6 +49,7 @@ export type RootStackParamList = {
   AddTransaction: { transactionId?: string; type?: 'income' | 'expense' | 'transfer' } | undefined;
   TransactionDetail: { id: string };
   WorkspaceManager: undefined;
+  Settings: undefined;
   NotificationSettings: undefined;
 };
 
