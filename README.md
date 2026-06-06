@@ -10,6 +10,24 @@ Paisa Track is a premium, privacy-first expense tracking application built with 
 - **📊 Smart Categorization**: Tag, organize, and filter your income, expenses, and transfers with dynamic categories.
 - **🌙 Beautiful UI/UX**: Carefully crafted with TailwindCSS (NativeWind), featuring dynamic layouts, crisp typography, and fluid transitions.
 
+## 📱 Screenshots
+
+<p align="center">
+  <img src="screens/Screenshot_2026-06-06-14-04-50-79_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  <img src="screens/Screenshot_2026-06-06-14-00-53-79_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  <img src="screens/Screenshot_2026-06-06-14-00-37-88_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+</p>
+
+<p align="center">
+  <img src="screens/Screenshot_2026-06-06-14-00-12-87_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  <img src="screens/Screenshot_2026-06-06-14-00-08-72_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+  <img src="screens/Screenshot_2026-06-06-14-14-46-50_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+</p>
+
+<p align="center">
+  <img src="screens/Screenshot_2026-06-06-14-14-36-32_c26f6e044dcb1d80de1e5b0fc0d91889.jpg" width="180"/>
+</p>
+
 ## 🚀 Tech Stack
 
 - **Framework**: React Native & Expo (SDK 52+)
